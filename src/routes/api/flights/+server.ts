@@ -1,13 +1,14 @@
 import { json } from '@sveltejs/kit';
+import { dev } from '$app/environment';
 import type { RequestHandler } from './$types';
 import { flightProvider } from '$lib/server/flights';
 import { getCache, setCache, TTL } from '$lib/server/cache';
 import type { FlightSearchResult } from '$lib/server/flights';
 import { encodeFlightSearch, buildFlightsUrl } from '$lib/server/flights/protobuf-encoder';
 import { QueueFullError } from '$lib/server/flights/request-queue';
+import { isValidDate } from '$lib/utils/validation';
 
 const IATA_RE = /^[A-Z]{3}$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const FAILURE_TTL = 60 * 60 * 1000; // 1 hour
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -22,10 +23,10 @@ export const GET: RequestHandler = async ({ url }) => {
 	if (!destination || !IATA_RE.test(destination)) {
 		return json({ error: 'Invalid or missing destination IATA code' }, { status: 400 });
 	}
-	if (!departDate || !DATE_RE.test(departDate)) {
+	if (!departDate || !isValidDate(departDate)) {
 		return json({ error: 'Invalid or missing departDate (YYYY-MM-DD)' }, { status: 400 });
 	}
-	if (!returnDate || !DATE_RE.test(returnDate)) {
+	if (!returnDate || !isValidDate(returnDate)) {
 		return json({ error: 'Invalid or missing returnDate (YYYY-MM-DD)' }, { status: 400 });
 	}
 
@@ -33,7 +34,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	const tfs = encodeFlightSearch(origin, destination, departDate, returnDate);
 	const fallbackUrl = buildFlightsUrl(tfs);
 
-	const nocache = url.searchParams.get('nocache') === '1';
+	const nocache = dev && url.searchParams.get('nocache') === '1';
 
 	// Check positive cache
 	const cacheKey = `flights:${origin}:${destination}:${departDate}:${returnDate}`;

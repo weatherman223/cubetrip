@@ -297,7 +297,7 @@
 				{/if}
 
 				<a
-					href={competition.url}
+					href={competition.url?.startsWith('https://') ? competition.url : '#'}
 					target="_blank"
 					rel="noopener noreferrer"
 					class="font-mono text-[10px] tracking-wider text-airline-sky underline-offset-2 transition-colors hover:text-airline-sky-light hover:underline"

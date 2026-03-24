@@ -1,15 +1,21 @@
 import { json } from '@sveltejs/kit';
+import { dev } from '$app/environment';
 import type { RequestHandler } from './$types';
 import { fetchWCIF, WCAApiError } from '$lib/server/wca';
 import { invalidateCache } from '$lib/server/cache';
+
+const WCA_ID_RE = /^[A-Za-z0-9]+$/;
 
 export const GET: RequestHandler = async ({ url }) => {
 	const id = url.searchParams.get('id');
 	if (!id) {
 		return json({ error: 'Missing required parameter: id' }, { status: 400 });
 	}
+	if (!WCA_ID_RE.test(id)) {
+		return json({ error: 'Invalid competition ID format' }, { status: 400 });
+	}
 
-	const nocache = url.searchParams.get('nocache') === '1';
+	const nocache = dev && url.searchParams.get('nocache') === '1';
 	if (nocache) {
 		invalidateCache(`wcif:${id}`);
 	}
@@ -19,7 +25,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json({ wcif });
 	} catch (err) {
 		if (err instanceof WCAApiError) {
-			return json({ error: err.message }, { status: 502 });
+			console.error('WCA API error:', err.message);
+			return json({ error: 'WCA API temporarily unavailable' }, { status: 502 });
 		}
 		return json({ error: 'Failed to fetch WCIF data' }, { status: 500 });
 	}

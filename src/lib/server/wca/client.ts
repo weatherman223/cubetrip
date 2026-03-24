@@ -84,15 +84,26 @@ export async function fetchCompetitions(params: {
 	const cached = getCache<WCACompetition[]>(cacheKey);
 	if (cached) return cached;
 
+	const MAX_PAGES = 20;
 	const all: WCACompetition[] = [];
 	let nextUrl: string | undefined =
 		`${WCA_API_BASE}/competitions?start=${params.start}&end=${params.end}`;
+	let page = 0;
 
 	while (nextUrl) {
+		if (++page > MAX_PAGES) {
+			console.warn(`WCA pagination cap reached (${MAX_PAGES} pages). Truncating results.`);
+			break;
+		}
 		const result: { data: WCACompetition[]; links: Record<string, string> } =
 			await wcaFetch<WCACompetition[]>(nextUrl);
 		all.push(...result.data);
-		nextUrl = result.links.next;
+		const next = result.links.next;
+		if (next && !next.startsWith(WCA_API_BASE)) {
+			console.warn(`Ignoring unexpected pagination URL: ${next}`);
+			break;
+		}
+		nextUrl = next;
 	}
 
 	setCache(cacheKey, all, TTL.COMPETITIONS);

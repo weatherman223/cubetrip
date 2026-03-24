@@ -1,8 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { fetchCompetitions, enrichCompetitions, WCAApiError } from '$lib/server/wca';
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+import { isValidDate, isDateRangeValid } from '$lib/utils/validation';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const start = url.searchParams.get('start');
@@ -14,11 +13,17 @@ export const GET: RequestHandler = async ({ url }) => {
 	if (!end) {
 		return json({ error: 'Missing required parameter: end' }, { status: 400 });
 	}
-	if (!DATE_RE.test(start)) {
-		return json({ error: 'Invalid start date format. Expected YYYY-MM-DD' }, { status: 400 });
+	if (!isValidDate(start)) {
+		return json({ error: 'Invalid start date. Expected a valid YYYY-MM-DD' }, { status: 400 });
 	}
-	if (!DATE_RE.test(end)) {
-		return json({ error: 'Invalid end date format. Expected YYYY-MM-DD' }, { status: 400 });
+	if (!isValidDate(end)) {
+		return json({ error: 'Invalid end date. Expected a valid YYYY-MM-DD' }, { status: 400 });
+	}
+	if (!isDateRangeValid(start, end, 90)) {
+		return json(
+			{ error: 'Date range too large. Maximum span is 90 days' },
+			{ status: 400 }
+		);
 	}
 
 	try {
@@ -27,7 +32,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json({ competitions });
 	} catch (err) {
 		if (err instanceof WCAApiError) {
-			return json({ error: err.message }, { status: 502 });
+			console.error('WCA API error:', err.message);
+			return json({ error: 'WCA API temporarily unavailable' }, { status: 502 });
 		}
 		console.error('Unexpected error fetching competitions:', err);
 		return json({ error: 'Internal server error' }, { status: 500 });

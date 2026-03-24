@@ -24,3 +24,8 @@ data/
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Project docs (not for repo)
+CubeTrip_PRD_v1.1.docx
+airports.csv
+codeswarmreview.md

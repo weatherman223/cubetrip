@@ -8,7 +8,7 @@ import type {
 } from './types';
 import { getCache, setCache, TTL } from '$lib/server/cache';
 
-const WCA_API_BASE = 'https://worldcubeassociation.org/api/v0';
+const WCA_API_BASE = 'https://www.worldcubeassociation.org/api/v0';
 
 export class WCAApiError extends Error {
 	constructor(

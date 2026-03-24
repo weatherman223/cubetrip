@@ -1,6 +1,6 @@
 /**
  * TypeScript interfaces matching the WCA API v0 response shapes.
- * Source: https://worldcubeassociation.org/api/v0
+ * Source: https://www.worldcubeassociation.org/api/v0
  */
 
 /** Delegate or organizer attached to a competition. */

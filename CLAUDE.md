@@ -30,7 +30,7 @@ Pick a date → see open competitions → see flight costs or driving distance.
 - Graceful degradation: if scraping fails, show "Check on Google Flights" link
 
 ## WCA API
-- Base: https://worldcubeassociation.org/api/v0
+- Base: https://www.worldcubeassociation.org/api/v0
 - /competitions?start=YYYY-MM-DD&end=YYYY-MM-DD — paginated 25/page
 - /competitions/:id/wcif/public — schedule, registration info, on-the-spot reg
 

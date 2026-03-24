@@ -1,1 +1,27 @@
 @import 'tailwindcss';
+
+@theme {
+	--font-sans: 'Inter', 'Helvetica Neue', system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+	--color-airline-midnight: #0f172a;
+	--color-airline-navy: #1e293b;
+	--color-airline-slate: #334155;
+	--color-airline-slate-light: #475569;
+
+	--color-airline-amber: #f59e0b;
+	--color-airline-amber-light: #fbbf24;
+	--color-airline-amber-dark: #d97706;
+
+	--color-airline-sky: #38bdf8;
+	--color-airline-sky-light: #7dd3fc;
+
+	--color-airline-paper: #f8fafc;
+	--color-airline-paper-warm: #fefce8;
+
+	--color-airline-open: #22c55e;
+	--color-airline-standby: #eab308;
+	--color-airline-upcoming: #3b82f6;
+	--color-airline-closed: #94a3b8;
+	--color-airline-cancelled: #ef4444;
+}

@@ -100,16 +100,6 @@ export async function fetchCompetitions(params: {
 }
 
 /**
- * Fetch a single competition by its WCA ID.
- */
-export async function fetchCompetition(id: string): Promise<WCACompetition> {
-	const { data } = await wcaFetch<WCACompetition>(
-		`${WCA_API_BASE}/competitions/${encodeURIComponent(id)}`
-	);
-	return data;
-}
-
-/**
  * Fetch WCIF public data for a single competition, trimmed to only the fields CubeTrip needs.
  */
 export async function fetchWCIF(id: string): Promise<WCIFPublicData> {

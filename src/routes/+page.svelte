@@ -11,8 +11,6 @@
 	interface CompFlightData {
 		/** The cheapest flight across all nearby airports — always shown as primary */
 		primary: AirportFlight | null;
-		/** A closer airport with a more expensive flight (convenience option) */
-		closerAlt: AirportFlight | null;
 		/** A farther airport with a cheaper flight (savings option) */
 		cheaperAlt: AirportFlight | null;
 		fallbackUrl: string | null;
@@ -304,14 +302,8 @@
 			searched += INITIAL_AIRPORT_COUNT;
 		}
 
-		// If we found results in the first batch but there could be cheaper alternatives,
-		// also check the remaining airports from that first batch
-		if (allResults.length > 0 && searched <= INITIAL_AIRPORT_COUNT) {
-			// allResults already has everything from batch 1 — no extra work needed
-		}
-
 		if (allResults.length === 0) {
-			return { primary: null, closerAlt: null, cheaperAlt: null, fallbackUrl };
+			return { primary: null, cheaperAlt: null, fallbackUrl };
 		}
 
 		const primary: AirportFlight = {
@@ -337,7 +329,7 @@
 			};
 		}
 
-		return { primary, closerAlt: null, cheaperAlt, fallbackUrl };
+		return { primary, cheaperAlt, fallbackUrl };
 	}
 
 	async function fetchFlightsForCompetitions(

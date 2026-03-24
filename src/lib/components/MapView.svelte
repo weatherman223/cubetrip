@@ -11,7 +11,6 @@
 
 	interface CompFlightData {
 		primary: AirportFlight | null;
-		closerAlt: AirportFlight | null;
 		cheaperAlt: AirportFlight | null;
 		fallbackUrl: string | null;
 	}

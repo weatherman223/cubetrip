@@ -27,7 +27,7 @@ function getNextUserAgent(): string {
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
 
-export class FlightFetchError extends Error {
+class FlightFetchError extends Error {
 	constructor(
 		public readonly status: number,
 		message: string

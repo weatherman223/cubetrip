@@ -1,6 +1,5 @@
 export {
 	fetchCompetitions,
-	fetchCompetition,
 	fetchWCIF,
 	fetchWCIFBatch,
 	enrichCompetitions,

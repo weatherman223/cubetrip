@@ -34,23 +34,10 @@ function isRateLimited(ip: string): { limited: boolean; retryAfter: number } {
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-	// Rate-limit only flight API (the one that scrapes Google)
-	if (event.url.pathname === '/api/flights') {
-		const ip =
-			event.request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-			event.getClientAddress();
-
-		const { limited, retryAfter } = isRateLimited(ip);
-		if (limited) {
-			return new Response(JSON.stringify({ error: 'Too many flight requests. Please slow down.' }), {
-				status: 429,
-				headers: {
-					'Content-Type': 'application/json',
-					'Retry-After': String(retryAfter)
-				}
-			});
-		}
-	}
+	// Rate limiting disabled — the server-side RequestQueue already enforces
+	// concurrency (MAX_CONCURRENT=3) and spacing (1s) on Google Flights requests.
+	// Per-IP limiting was blocking normal app usage since a single search
+	// generates many internal API calls.
 
 	const response = await resolve(event);
 

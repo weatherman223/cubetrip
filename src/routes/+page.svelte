@@ -1,20 +1,8 @@
 <script lang="ts">
-	import type { EnrichedCompetition, WCIFPublicData, EnrichedWCIF } from '$lib/server/wca/types';
-	import type { FlightSearchResult, FlightResult } from '$lib/server/flights/types';
-
-	interface AirportFlight {
-		flight: FlightResult;
-		fetchedAt: string;
-		fallbackUrl: string | null;
-	}
-
-	interface CompFlightData {
-		/** The cheapest flight across all nearby airports — always shown as primary */
-		primary: AirportFlight | null;
-		/** A farther airport with a cheaper flight (savings option) */
-		cheaperAlt: AirportFlight | null;
-		fallbackUrl: string | null;
-	}
+	import type { EnrichedCompetition, WCIFPublicData } from '$lib/server/wca/types';
+	import type { FlightSearchResult } from '$lib/server/flights/types';
+	import type { AirportFlight, CompFlightData } from '$lib/types';
+	import { enrichWCIF } from '$lib/utils/enrich-wcif';
 	import DateRangePicker from '$lib/components/DateRangePicker.svelte';
 	import CompetitionList from '$lib/components/CompetitionList.svelte';
 	import MapView from '$lib/components/MapView.svelte';
@@ -112,48 +100,6 @@
 	let loading = $state(false);
 	let error: string | null = $state(null);
 
-	// Retry WCIF for competitions with wcif === null
-	function computeEnrichedWCIF(comp: EnrichedCompetition, wcif: WCIFPublicData): EnrichedWCIF {
-		const now = new Date();
-		const open = new Date(wcif.registrationInfo.openTime);
-		const close = new Date(wcif.registrationInfo.closeTime);
-
-		let registrationStatus: EnrichedWCIF['registrationStatus'] = 'closed';
-		if (comp.cancelled_at !== null) {
-			registrationStatus = 'closed';
-		} else if (now >= open && now <= close) {
-			if (wcif.competitorLimit !== null && wcif.competitorCount >= wcif.competitorLimit) {
-				registrationStatus = 'waitlist';
-			} else {
-				registrationStatus = 'open';
-			}
-		} else if (wcif.registrationInfo.onTheSpotRegistration) {
-			registrationStatus = 'on-the-spot';
-		}
-
-		// Compute schedule times
-		let scheduleStartTime: string | null = null;
-		let scheduleEndTime: string | null = null;
-		const activities = wcif.schedule.venues.flatMap((v) => v.rooms.flatMap((r) => r.activities));
-		if (activities.length > 0) {
-			scheduleStartTime = activities[0].startTime;
-			scheduleEndTime = activities[0].endTime;
-			for (const a of activities) {
-				if (a.startTime < scheduleStartTime) scheduleStartTime = a.startTime;
-				if (a.endTime > scheduleEndTime) scheduleEndTime = a.endTime;
-			}
-		}
-
-		return {
-			onTheSpotRegistration: wcif.registrationInfo.onTheSpotRegistration,
-			competitorLimit: wcif.competitorLimit,
-			competitorCount: wcif.competitorCount,
-			registrationStatus,
-			scheduleStartTime,
-			scheduleEndTime
-		};
-	}
-
 	async function retryUnknownComps() {
 		const unknown = competitions.filter((c) => c.wcif === null);
 		if (unknown.length === 0) return;
@@ -179,7 +125,7 @@
 					const { wcif } = (await res.json()) as { wcif: WCIFPublicData };
 					const comp = competitions.find((c) => c.id === id);
 					if (comp) {
-						comp.wcif = computeEnrichedWCIF(comp, wcif);
+						comp.wcif = enrichWCIF(comp.cancelled_at, wcif);
 						competitions = [...competitions]; // trigger reactivity
 					}
 				} catch {
@@ -246,7 +192,7 @@
 		departDate: string,
 		returnDate: string,
 		nocache = false
-	): Promise<{ flight: FlightResult; fetchedAt: string; fallbackUrl: string | null } | null> {
+	): Promise<AirportFlight | null> {
 		try {
 			const cacheParam = nocache ? '&nocache=1' : '';
 			const res = await fetch(
@@ -472,7 +418,7 @@
 				const { wcif } = await wcifRes.json();
 				const comp = competitions.find((c) => c.id === compId);
 				if (comp && wcif) {
-					comp.wcif = computeEnrichedWCIF(comp, wcif);
+					comp.wcif = enrichWCIF(comp.cancelled_at, wcif);
 					competitions = [...competitions];
 				}
 			}

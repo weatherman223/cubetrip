@@ -83,9 +83,9 @@ export function encodeFlightSearch(
 
 	const message = Info.create({
 		data: flightLegs,
-		passengers: [1], // 1 = ADULT
-		seat: 1, // ECONOMY
-		trip: returnDate ? 1 : 2 // ROUND_TRIP or ONE_WAY
+		passengers: [Passenger.values.ADULT],
+		seat: Seat.values.ECONOMY,
+		trip: returnDate ? Trip.values.ROUND_TRIP : Trip.values.ONE_WAY
 	});
 
 	const buffer = Info.encode(message).finish();

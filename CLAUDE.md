@@ -25,7 +25,7 @@ Pick a date → see open competitions → see flight costs or driving distance.
 - ALL external API calls happen server-side only (SvelteKit +server.ts routes)
 - Cache-first architecture: always check SQLite cache before any external request
 - Flight scraping uses Protobuf URL construction (not Playwright/headless browser)
-- Request queue with rate limiting: max 1 concurrent Google request, 2s spacing
+- Request queue with rate limiting: max 3 concurrent Google requests, 1s minimum spacing, exponential backoff capped at 30s
 - FlightProvider interface allows swapping scraping implementation without frontend changes
 - Graceful degradation: if scraping fails, show "Check on Google Flights" link
 

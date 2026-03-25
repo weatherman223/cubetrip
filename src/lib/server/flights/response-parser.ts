@@ -1,4 +1,3 @@
-import * as cheerio from 'cheerio';
 import type { FlightResult } from './types';
 
 /**
@@ -22,16 +21,14 @@ export function parseFlightResponse(html: string): FlightResult[] {
  * Extract the nested data payload from the HTML script tag.
  */
 function extractPayload(html: string): unknown[] | null {
-	const $ = cheerio.load(html);
-
-	// Look for the script tag with class "ds:1" containing flight data
-	const scriptEl = $('script.ds\\:1');
-	if (!scriptEl.length) {
+	// Extract the script tag with class="ds:1" containing flight data
+	const scriptMatch = html.match(/<script[^>]+class="ds:1"[^>]*>([\s\S]*?)<\/script>/);
+	if (!scriptMatch) {
 		console.warn('Could not find script.ds:1 tag');
 		return null;
 	}
 
-	const scriptText = scriptEl.text();
+	const scriptText = scriptMatch[1];
 	if (!scriptText) return null;
 
 	// The script content contains something like: ... data:[ ... ], ...
@@ -85,11 +82,25 @@ type Payload = any;
 
 /**
  * Build a map of airline code → airline name from the payload metadata.
+ *
+ * Google Flights payload structure (reverse-engineered from fast-flights Python source):
+ *   payload[3][0]       — flight results list
+ *   payload[7][1][1]    — airline metadata array [[code, name], ...]
+ *   k[1][0][1]          — price (integer, USD)
+ *   k[0][1]             — airline IATA codes array
+ *   k[0][2]             — flight segments array
+ *   firstSeg[3]         — origin airport IATA
+ *   lastSeg[6]          — destination airport IATA
+ *   firstSeg[8]         — departure time string
+ *   firstSeg[20]        — departure date string
+ *   lastSeg[10]         — arrival time string
+ *   lastSeg[21]         — arrival date string
+ *   seg[11]             — segment duration in minutes
  */
 function buildAirlineMap(payload: Payload): Map<string, string> {
 	const map = new Map<string, string>();
 	try {
-		const airlines = payload[7]?.[1]?.[1];
+		const airlines = payload[7]?.[1]?.[1]; // airline metadata map
 		if (Array.isArray(airlines)) {
 			for (const entry of airlines) {
 				if (Array.isArray(entry) && entry.length >= 2) {
@@ -110,7 +121,7 @@ function extractFlights(payload: Payload, airlineMap: Map<string, string>): Flig
 	const flights: FlightResult[] = [];
 
 	try {
-		const flightList = payload[3]?.[0];
+		const flightList = payload[3]?.[0]; // flight results list
 		if (!Array.isArray(flightList)) return [];
 
 		for (const k of flightList) {
@@ -132,34 +143,34 @@ function extractFlights(payload: Payload, airlineMap: Map<string, string>): Flig
  * Parse a single flight entry from the payload.
  */
 function parseOneFlight(k: Payload, airlineMap: Map<string, string>): FlightResult | null {
-	const price = k[1]?.[0]?.[1];
+	const price = k[1]?.[0]?.[1]; // price in USD
 	if (typeof price !== 'number' || price <= 0) return null;
 
-	const airlineCodes: string[] = k[0]?.[1] ?? [];
+	const airlineCodes: string[] = k[0]?.[1] ?? []; // airline IATA codes
 	const airlineName =
 		airlineCodes
 			.map((code: string) => airlineMap.get(code) ?? code)
 			.filter(Boolean)
 			.join(', ') || 'Unknown Airline';
 
-	const segments = k[0]?.[2];
+	const segments = k[0]?.[2]; // flight segments
 	if (!Array.isArray(segments) || segments.length === 0) return null;
 
 	const firstSeg = segments[0];
 	const lastSeg = segments[segments.length - 1];
 
-	const origin = String(firstSeg[3] ?? '');
-	const destination = String(lastSeg[6] ?? '');
+	const origin = String(firstSeg[3] ?? ''); // origin IATA
+	const destination = String(lastSeg[6] ?? ''); // destination IATA
 	if (!origin || !destination) return null;
 
-	const departTime = String(firstSeg[8] ?? '');
-	const departDate = String(firstSeg[20] ?? '');
-	const arrivalTime = String(lastSeg[10] ?? '');
-	const arrivalDate = String(lastSeg[21] ?? '');
+	const departTime = String(firstSeg[8] ?? ''); // departure time
+	const departDate = String(firstSeg[20] ?? ''); // departure date
+	const arrivalTime = String(lastSeg[10] ?? ''); // arrival time
+	const arrivalDate = String(lastSeg[21] ?? ''); // arrival date
 
 	let totalDuration = 0;
 	for (const seg of segments) {
-		const dur = seg[11];
+		const dur = seg[11]; // segment duration in minutes
 		if (typeof dur === 'number') {
 			totalDuration += dur;
 		}

@@ -1,20 +1,8 @@
 <script lang="ts">
 	import type { EnrichedCompetition } from '$lib/server/wca/types';
-	import type { FlightResult } from '$lib/server/flights/types';
+	import type { CompFlightData } from '$lib/types';
 	import CompetitionCard from './CompetitionCard.svelte';
 	import StatusMessage from './StatusMessage.svelte';
-
-	interface AirportFlight {
-		flight: FlightResult;
-		fetchedAt: string;
-		fallbackUrl: string | null;
-	}
-
-	interface CompFlightData {
-		primary: AirportFlight | null;
-		cheaperAlt: AirportFlight | null;
-		fallbackUrl: string | null;
-	}
 
 	let {
 		competitions,

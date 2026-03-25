@@ -1,12 +1,6 @@
-import type {
-	WCACompetition,
-	WCIFPublicData,
-	EnrichedCompetition,
-	EnrichedWCIF,
-	RegistrationStatus,
-	WCIFActivity
-} from './types';
+import type { WCACompetition, WCIFPublicData, EnrichedCompetition, EnrichedWCIF } from './types';
 import { getCache, setCache, TTL } from '$lib/server/cache';
+import { enrichWCIF } from '$lib/utils/enrich-wcif';
 
 const WCA_API_BASE = 'https://www.worldcubeassociation.org/api/v0';
 
@@ -42,7 +36,7 @@ const RETRY_BASE_MS = 1000;
 async function wcaFetch<T>(url: string): Promise<{ data: T; links: Record<string, string> }> {
 	let lastError: WCAApiError | null = null;
 
-	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		if (attempt > 0) {
 			const backoff = RETRY_BASE_MS * 2 ** (attempt - 1);
 			console.warn(`WCA API retry ${attempt}/${MAX_RETRIES} for ${url} in ${backoff}ms`);
@@ -174,58 +168,6 @@ export async function fetchWCIFBatch(
 	return results;
 }
 
-function computeRegistrationStatus(
-	competition: WCACompetition,
-	wcif: WCIFPublicData
-): RegistrationStatus {
-	if (competition.cancelled_at !== null) return 'closed';
-
-	const now = new Date();
-	const open = new Date(wcif.registrationInfo.openTime);
-	const close = new Date(wcif.registrationInfo.closeTime);
-
-	if (now >= open && now <= close) {
-		if (wcif.competitorLimit !== null && wcif.competitorCount >= wcif.competitorLimit) {
-			return 'waitlist';
-		}
-		return 'open';
-	}
-	if (wcif.registrationInfo.onTheSpotRegistration) return 'on-the-spot';
-	return 'closed';
-}
-
-function collectActivities(activities: WCIFActivity[]): WCIFActivity[] {
-	const all: WCIFActivity[] = [];
-	for (const a of activities) {
-		all.push(a);
-		if (a.childActivities.length > 0) {
-			all.push(...collectActivities(a.childActivities));
-		}
-	}
-	return all;
-}
-
-function computeScheduleTimes(wcif: WCIFPublicData): {
-	start: string | null;
-	end: string | null;
-} {
-	const allActivities = wcif.schedule.venues.flatMap((v) =>
-		v.rooms.flatMap((r) => collectActivities(r.activities))
-	);
-
-	if (allActivities.length === 0) return { start: null, end: null };
-
-	let earliest = allActivities[0].startTime;
-	let latest = allActivities[0].endTime;
-
-	for (const a of allActivities) {
-		if (a.startTime < earliest) earliest = a.startTime;
-		if (a.endTime > latest) latest = a.endTime;
-	}
-
-	return { start: earliest, end: latest };
-}
-
 /**
  * Enrich competitions with WCIF data (registration status, schedule times, competitor limit).
  * Fetches WCIF in batches with concurrency control.
@@ -238,20 +180,9 @@ export async function enrichCompetitions(
 
 	return competitions.map((comp) => {
 		const wcifData = wcifMap.get(comp.id);
-
-		let wcif: EnrichedWCIF | null = null;
-		if (wcifData) {
-			const times = computeScheduleTimes(wcifData);
-			wcif = {
-				onTheSpotRegistration: wcifData.registrationInfo.onTheSpotRegistration,
-				competitorLimit: wcifData.competitorLimit,
-				competitorCount: wcifData.competitorCount,
-				registrationStatus: computeRegistrationStatus(comp, wcifData),
-				scheduleStartTime: times.start,
-				scheduleEndTime: times.end
-			};
-		}
-
+		const wcif: EnrichedWCIF | null = wcifData
+			? enrichWCIF(comp.cancelled_at, wcifData)
+			: null;
 		return { ...comp, wcif };
 	});
 }

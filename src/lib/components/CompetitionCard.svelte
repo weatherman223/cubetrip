@@ -42,6 +42,7 @@
 		return `${hrs}h ago`;
 	}
 
+	// Convert ISO 3166-1 alpha-2 to regional indicator emoji (0x1F1E6 = Regional Indicator 'A', 65 = ASCII 'A')
 	function countryFlag(iso2: string): string {
 		return [...iso2.toUpperCase()]
 			.map((c) => String.fromCodePoint(0x1f1e6 - 65 + c.charCodeAt(0)))
@@ -185,7 +186,7 @@
 						{#if distanceLabel}
 							{#if isDriveable}🚗 {distanceLabel}
 								<span class="text-[9px] font-normal text-slate-500"
-									>~{Math.max(1, Math.round((distance ?? 0) / 50))}h drive</span
+									>~{Math.max(1, Math.round((distance ?? 0) / (unit === 'km' ? 80 : 50)))}h drive</span
 								>
 							{:else}✈ {distanceLabel}{/if}
 						{:else}

@@ -1,7 +1,9 @@
 import type { Handle } from '@sveltejs/kit';
 
-// --- In-memory per-IP rate limiter for API routes ---
-const RATE_LIMIT = 30; // requests per window
+// --- In-memory per-IP rate limiter for flight scraping ---
+// Only rate-limit /api/flights since it hits Google. Other API routes hit
+// our own cache/WCA public API and don't need aggressive limiting.
+const FLIGHT_RATE_LIMIT = 120; // flight requests per window
 const RATE_WINDOW_MS = 60_000; // 1 minute
 const ipCounts = new Map<string, { count: number; resetAt: number }>();
 
@@ -23,7 +25,7 @@ function isRateLimited(ip: string): { limited: boolean; retryAfter: number } {
 	}
 
 	entry.count++;
-	if (entry.count > RATE_LIMIT) {
+	if (entry.count > FLIGHT_RATE_LIMIT) {
 		const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
 		return { limited: true, retryAfter };
 	}
@@ -32,15 +34,15 @@ function isRateLimited(ip: string): { limited: boolean; retryAfter: number } {
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-	// Apply rate limiting to API routes only
-	if (event.url.pathname.startsWith('/api/')) {
+	// Rate-limit only flight API (the one that scrapes Google)
+	if (event.url.pathname === '/api/flights') {
 		const ip =
 			event.request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
 			event.getClientAddress();
 
 		const { limited, retryAfter } = isRateLimited(ip);
 		if (limited) {
-			return new Response(JSON.stringify({ error: 'Too many requests. Please slow down.' }), {
+			return new Response(JSON.stringify({ error: 'Too many flight requests. Please slow down.' }), {
 				status: 429,
 				headers: {
 					'Content-Type': 'application/json',

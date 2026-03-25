@@ -2,7 +2,7 @@ import type { FlightProvider, FlightSearchResult } from './types';
 import { encodeFlightSearch } from './protobuf-encoder';
 import { fetchFlightPage } from './http-client';
 import { parseFlightResponse } from './response-parser';
-import { flightQueue } from './request-queue';
+import { flightQueue, QueueFullError } from './request-queue';
 
 export class GoogleFlightsProtobufProvider implements FlightProvider {
 	async searchFlights(
@@ -25,6 +25,8 @@ export class GoogleFlightsProtobufProvider implements FlightProvider {
 				fetchedAt: new Date().toISOString()
 			};
 		} catch (err) {
+			// Re-throw queue errors so the route handler can return 429
+			if (err instanceof QueueFullError) throw err;
 			console.error(`Flight search failed for ${origin}→${destination}:`, err);
 			return {
 				flights: [],

@@ -44,7 +44,8 @@ async function wcaFetch<T>(url: string): Promise<{ data: T; links: Record<string
 		}
 
 		const res = await fetch(url, {
-			headers: { Accept: 'application/json' }
+			headers: { Accept: 'application/json' },
+			signal: AbortSignal.timeout(15_000)
 		});
 
 		if (res.ok) {

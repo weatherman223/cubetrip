@@ -61,7 +61,8 @@ export async function fetchFlightPage(tfsParam: string): Promise<string> {
 					'Accept-Encoding': 'gzip, deflate, br',
 					'Cache-Control': 'no-cache',
 					Pragma: 'no-cache'
-				}
+				},
+				signal: AbortSignal.timeout(15_000)
 			});
 
 			if (!res.ok) {

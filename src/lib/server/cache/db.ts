@@ -5,18 +5,32 @@ import { mkdirSync } from 'node:fs';
 const DB_DIR = resolve('data');
 const DB_PATH = resolve(DB_DIR, 'cache.db');
 
-mkdirSync(DB_DIR, { recursive: true });
+let db: InstanceType<typeof Database>;
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.exec(`
-	CREATE TABLE IF NOT EXISTS cache (
-		key TEXT PRIMARY KEY,
-		value TEXT NOT NULL,
-		expires_at INTEGER NOT NULL
-	)
-`);
-db.exec('CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)');
+try {
+	mkdirSync(DB_DIR, { recursive: true });
+	db = new Database(DB_PATH);
+	db.pragma('journal_mode = WAL');
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS cache (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			expires_at INTEGER NOT NULL
+		)
+	`);
+	db.exec('CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)');
+} catch (err) {
+	console.error(`Failed to open cache DB at ${DB_PATH}, falling back to in-memory:`, err);
+	db = new Database(':memory:');
+	db.exec(`
+		CREATE TABLE cache (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			expires_at INTEGER NOT NULL
+		)
+	`);
+	db.exec('CREATE INDEX idx_cache_expires ON cache(expires_at)');
+}
 
 // Clean expired entries hourly
 setInterval(() => cleanExpired(), 60 * 60 * 1000);

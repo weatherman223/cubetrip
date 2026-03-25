@@ -9,7 +9,7 @@ import { QueueFullError } from '$lib/server/flights/request-queue';
 import { isValidDate } from '$lib/utils/validation';
 
 const IATA_RE = /^[A-Z]{3}$/;
-const FAILURE_TTL = 60 * 60 * 1000; // 1 hour
+const FAILURE_TTL = 5 * 60 * 1000; // 5 minutes — short enough to recover from transient failures
 
 export const GET: RequestHandler = async ({ url }) => {
 	const origin = url.searchParams.get('origin')?.toUpperCase();

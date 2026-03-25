@@ -3,6 +3,12 @@ import type { RequestHandler } from './$types';
 import { fetchCompetitions, WCAApiError } from '$lib/server/wca';
 import { isValidDate, isDateRangeValid } from '$lib/utils/validation';
 
+/**
+ * GET /api/competitions?start=YYYY-MM-DD&end=YYYY-MM-DD
+ * Returns WCA competitions in a date range (max 90 days) with wcif: null.
+ * WCIF data is lazy-loaded per-card by the client via /api/wcif/:id.
+ * Response: { competitions: EnrichedCompetition[], total: number, fetchedAt: string }
+ */
 export const GET: RequestHandler = async ({ url }) => {
 	const start = url.searchParams.get('start');
 	const end = url.searchParams.get('end');

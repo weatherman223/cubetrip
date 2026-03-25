@@ -13,6 +13,12 @@ interface Airport {
 
 const airportList = airports as Airport[];
 
+/**
+ * GET /api/airports?q=DEN
+ * Server-side airport autocomplete. Returns up to 10 matches by IATA code, city, or name.
+ * Minimum query length: 2 characters.
+ * Response: { airports: Airport[] }
+ */
 export const GET: RequestHandler = async ({ url }) => {
 	const q = url.searchParams.get('q')?.trim();
 	if (!q || q.length < 2) {

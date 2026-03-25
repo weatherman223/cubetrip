@@ -5,6 +5,12 @@ import { fetchWCIF, WCAApiError } from '$lib/server/wca';
 
 const WCA_ID_RE = /^[A-Za-z0-9]+$/;
 
+/**
+ * GET /api/wcif/:id
+ * Fetches enriched WCIF public data for a competition (registration status, schedule, competitor count).
+ * Results are cached for 2 hours. In dev mode, ?nocache=1 bypasses the cache read.
+ * Response: { wcif: WCIFPublicData }
+ */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const { id } = params;
 	if (!WCA_ID_RE.test(id)) {

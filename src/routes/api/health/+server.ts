@@ -2,6 +2,12 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getCache } from '$lib/server/cache';
 
+/**
+ * GET /api/health
+ * Health check endpoint. Returns DB connectivity status and process uptime.
+ * Response: { status: 'ok' | 'degraded', uptime: number, cacheOk: boolean }
+ * Returns 200 if healthy, 503 if DB is unreachable.
+ */
 export const GET: RequestHandler = async () => {
 	let cacheOk = false;
 	try {

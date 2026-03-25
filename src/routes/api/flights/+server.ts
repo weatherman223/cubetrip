@@ -12,6 +12,13 @@ import { isValidDate } from '$lib/utils/validation';
 const IATA_RE = /^[A-Z]{3}$/;
 const FAILURE_TTL = 5 * 60 * 1000; // 5 minutes — short enough to recover from transient failures
 
+/**
+ * GET /api/flights?origin=DEN&destination=LAX&departDate=YYYY-MM-DD&returnDate=YYYY-MM-DD
+ * Scrapes Google Flights for prices. Results are cached (12h success, 5min failure).
+ * Concurrent requests for the same route are coalesced into a single upstream fetch.
+ * Response: { flights: FlightResult[], fetchedAt: string, fallbackUrl: string }
+ * Errors: 400 (bad params), 429 (queue full), 503 (scrape failure)
+ */
 export const GET: RequestHandler = async ({ url }) => {
 	const origin = url.searchParams.get('origin')?.toUpperCase();
 	const destination = url.searchParams.get('destination')?.toUpperCase();

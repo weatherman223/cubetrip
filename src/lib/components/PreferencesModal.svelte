@@ -57,7 +57,7 @@
 	}
 
 	function handleBackdrop(e: MouseEvent) {
-		if (e.target === e.currentTarget) onClose();
+		if (e.target === e.currentTarget) handleSave();
 	}
 </script>
 
@@ -142,7 +142,12 @@
 					>
 						<button
 							type="button"
-							onclick={() => (unit = 'miles')}
+							onclick={() => {
+							if (unit !== 'miles') {
+								radius = Math.round(radius / 1.60934);
+								unit = 'miles';
+							}
+						}}
 							class="cursor-pointer rounded-md px-4 py-1.5 font-mono text-xs font-semibold tracking-wider transition-all
 								{unit === 'miles'
 								? 'bg-airline-amber text-airline-midnight shadow-sm'
@@ -152,7 +157,12 @@
 						</button>
 						<button
 							type="button"
-							onclick={() => (unit = 'km')}
+							onclick={() => {
+							if (unit !== 'km') {
+								radius = Math.round(radius * 1.60934);
+								unit = 'km';
+							}
+						}}
 							class="cursor-pointer rounded-md px-4 py-1.5 font-mono text-xs font-semibold tracking-wider transition-all
 								{unit === 'km'
 								? 'bg-airline-amber text-airline-midnight shadow-sm'

@@ -8,10 +8,12 @@
 
 	let {
 		currentSort,
-		onSort
+		onSort,
+		flightsLoading = false
 	}: {
 		currentSort: string;
 		onSort: (sort: string) => void;
+		flightsLoading?: boolean;
 	} = $props();
 </script>
 
@@ -30,4 +32,7 @@
 			{opt.label}
 		</button>
 	{/each}
+	{#if currentSort === 'cost' && flightsLoading}
+		<span class="ml-1 font-mono text-[9px] text-airline-slate-light animate-pulse">(loading prices)</span>
+	{/if}
 </div>

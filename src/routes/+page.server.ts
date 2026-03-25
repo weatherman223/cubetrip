@@ -1,10 +1,5 @@
 export function load() {
-	const today = new Date();
-	const twoWeeks = new Date(today);
-	twoWeeks.setDate(today.getDate() + 14);
-
-	const start = today.toISOString().split('T')[0];
-	const end = twoWeeks.toISOString().split('T')[0];
-
-	return { start, end };
+	// Dates are computed client-side to respect the user's timezone.
+	// The server returns nulls; the component initializes from local Date().
+	return { start: null as string | null, end: null as string | null };
 }

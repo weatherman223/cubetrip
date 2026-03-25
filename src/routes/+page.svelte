@@ -21,7 +21,15 @@
 
 	const { data } = $props();
 
-
+	// Compute default dates in the user's local timezone (not UTC)
+	function localDateStr(d: Date): string {
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+	const today = new Date();
+	const twoWeeks = new Date(today);
+	twoWeeks.setDate(today.getDate() + 14);
+	const defaultStart = data.start ?? localDateStr(today);
+	const defaultEnd = data.end ?? localDateStr(twoWeeks);
 
 	// Read initial state from URL params
 	function readUrlState() {
@@ -38,8 +46,8 @@
 	const urlState = readUrlState();
 
 	let competitions: EnrichedCompetition[] = $state([]);
-	let startDate = $state(data.start);
-	let endDate = $state(data.end);
+	let startDate = $state(defaultStart);
+	let endDate = $state(defaultEnd);
 	let hasSearched = $state(false);
 	let showClosed = $state(urlState.closed === '1');
 	let allowPartial = $state(
@@ -146,20 +154,27 @@
 
 	// Fetch flights for non-driveable competitions
 	let flightFetchKey = $state('');
+	let flightGeneration = 0;
 
 	// Trigger flight fetching when competitions or home airport change
 	$effect(() => {
 		const key = `${competitions.map((c) => c.id).join(',')}:${preferences.current.homeAirport}`;
 		if (key !== flightFetchKey && competitions.length > 0 && preferences.current.homeAirport) {
 			flightFetchKey = key;
+			const gen = ++flightGeneration;
 			flightsLoading = true;
 			fetchFlightsForCompetitions(
 				competitions,
 				preferences.current.homeAirport,
 				distances,
 				preferences.current.driveableRadius,
-				(updated) => { flights = updated; }
-			).then(() => { flightsLoading = false; });
+				(updated) => {
+					// Discard stale results if a newer search has started
+					if (gen === flightGeneration) flights = updated;
+				}
+			).then(() => {
+				if (gen === flightGeneration) flightsLoading = false;
+			});
 		}
 	});
 
@@ -221,6 +236,19 @@
 	);
 
 	async function searchCompetitions(start: string, end: string) {
+		// Client-side date range validation (server also enforces 90 days)
+		const diffDays =
+			(new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime()) /
+			(1000 * 60 * 60 * 24);
+		if (diffDays > 90) {
+			error = 'Date range too large. Maximum span is 90 days.';
+			return;
+		}
+		if (diffDays < 0) {
+			error = 'End date must be after start date.';
+			return;
+		}
+
 		hasSearched = true;
 		loading = true;
 		error = null;
@@ -234,7 +262,7 @@
 			}
 			const body = await res.json();
 			competitions = body.competitions;
-			dataFetchedAt = new Date().toISOString();
+			dataFetchedAt = body.fetchedAt ?? new Date().toISOString();
 			startDate = start;
 			endDate = end;
 		} catch (e) {
@@ -404,7 +432,7 @@
 
 			<!-- Sort + view toggle row -->
 			<div class="flex flex-wrap items-center justify-between gap-2">
-				<SortControl currentSort={sortBy} onSort={(s) => (sortBy = s as typeof sortBy)} />
+				<SortControl currentSort={sortBy} onSort={(s) => (sortBy = s as typeof sortBy)} {flightsLoading} />
 
 				<div
 					class="inline-flex rounded-lg border border-airline-slate/40 bg-airline-midnight p-0.5"

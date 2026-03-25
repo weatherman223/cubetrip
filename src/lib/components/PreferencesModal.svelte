@@ -250,6 +250,18 @@
 					<span>✈</span>
 					SAVE PREFERENCES
 				</button>
+				<div class="mt-3 flex items-center justify-between">
+					<p class="text-[9px] text-slate-500">
+						Preferences are stored locally in your browser and never sent to our servers.
+					</p>
+					<button
+						type="button"
+						onclick={() => { preferences.reset(); onClose(); }}
+						class="cursor-pointer whitespace-nowrap font-mono text-[9px] text-slate-500 underline-offset-2 transition-colors hover:text-red-400 hover:underline"
+					>
+						CLEAR ALL DATA
+					</button>
+				</div>
 			</div>
 		</div>
 	</div>

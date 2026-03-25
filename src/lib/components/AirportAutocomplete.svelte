@@ -1,6 +1,4 @@
 <script lang="ts">
-	import airports from '$lib/data/airports.json';
-
 	interface Airport {
 		iata: string;
 		name: string;
@@ -30,28 +28,20 @@
 
 	let filteredResults: Airport[] = $state([]);
 
-	function runFilter(q: string) {
+	async function runFilter(q: string) {
 		if (q.length < 2) {
 			filteredResults = [];
 			return;
 		}
-		const lower = q.toLowerCase();
-		const all = airports as Airport[];
-
-		// Exact IATA match first
-		const exactIata = all.filter((a) => a.iata.toLowerCase() === lower);
-		// IATA starts with query
-		const iataStartsWith = all.filter(
-			(a) => a.iata.toLowerCase().startsWith(lower) && a.iata.toLowerCase() !== lower
-		);
-		// City/name matches
-		const otherMatches = all.filter(
-			(a) =>
-				!a.iata.toLowerCase().startsWith(lower) &&
-				(a.city.toLowerCase().includes(lower) || a.name.toLowerCase().includes(lower))
-		);
-
-		filteredResults = [...exactIata, ...iataStartsWith, ...otherMatches].slice(0, 8);
+		try {
+			const res = await fetch(`/api/airports?q=${encodeURIComponent(q)}`);
+			if (res.ok) {
+				const data = await res.json();
+				filteredResults = data.airports;
+			}
+		} catch {
+			// Silently fail — user can keep typing
+		}
 	}
 
 	function handleInput() {

@@ -5,8 +5,11 @@ const STORAGE_KEY = 'cubetrip-preferences';
 export type DistanceUnit = 'miles' | 'km';
 
 export interface UserPreferences {
+	/** Home airport IATA code. Set atomically with homeLatitude/homeLongitude via airport selection. */
 	homeAirport: string | null;
+	/** Home airport latitude. Always set/cleared together with homeAirport. */
 	homeLatitude: number | null;
+	/** Home airport longitude. Always set/cleared together with homeAirport. */
 	homeLongitude: number | null;
 	driveableRadius: number;
 	unit: DistanceUnit;

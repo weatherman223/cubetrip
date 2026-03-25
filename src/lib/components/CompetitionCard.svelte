@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { EnrichedCompetition } from '$lib/server/wca/types';
 	import type { FlightResult } from '$lib/server/flights/types';
+	import { getStatusTailwind } from '$lib/utils/status-display';
 	import EventIcon from './EventIcon.svelte';
 
 	let {
@@ -56,28 +57,9 @@
 		return str.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 	}
 
-	const statusConfig = $derived.by(() => {
-		if (isCancelled) {
-			return { label: 'CANCELLED', color: 'bg-airline-cancelled', dot: 'bg-airline-cancelled' };
-		}
-		const status = competition.wcif?.registrationStatus;
-		switch (status) {
-			case 'open':
-				return { label: 'BOARDING', color: 'bg-airline-open', dot: 'bg-airline-open' };
-			case 'waitlist':
-				return { label: 'WAITLIST', color: 'bg-airline-amber', dot: 'bg-airline-amber' };
-			case 'on-the-spot':
-				return { label: 'STANDBY', color: 'bg-airline-standby', dot: 'bg-airline-standby' };
-			case 'closed':
-				return { label: 'GATE CLOSED', color: 'bg-airline-closed', dot: 'bg-airline-closed' };
-			default:
-				return {
-					label: 'CHECKING STATUS',
-					color: 'bg-airline-slate',
-					dot: 'bg-airline-amber'
-				};
-		}
-	});
+	const statusConfig = $derived(
+		getStatusTailwind(competition.wcif?.registrationStatus, isCancelled)
+	);
 
 	const competitorLimit = $derived(
 		competition.wcif?.competitorLimit ?? competition.competitor_limit

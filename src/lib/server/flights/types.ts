@@ -1,6 +1,7 @@
 export interface FlightResult {
 	price: number;
-	currency: string;
+	/** Price currency — always USD. Google Flights results are scraped in USD regardless of route. */
+	currency: 'USD';
 	airline: string;
 	departureTime: string;
 	arrivalTime: string;

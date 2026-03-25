@@ -25,6 +25,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 			console.error('WCA API error:', err.message);
 			return json({ error: 'WCA API temporarily unavailable' }, { status: 502 });
 		}
+		console.error('Unexpected error fetching WCIF:', err);
 		return json({ error: 'Failed to fetch WCIF data' }, { status: 500 });
 	}
 };

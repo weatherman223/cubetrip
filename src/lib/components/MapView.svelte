@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { EnrichedCompetition } from '$lib/server/wca/types';
 	import type { CompFlightData } from '$lib/types';
+	import { getStatusHex } from '$lib/utils/status-display';
 	import { browser } from '$app/environment';
 
 	let {
@@ -166,17 +167,7 @@
 						? `✈ ${distLabel}`
 						: '';
 
-			const rawStatus = comp.wcif?.registrationStatus ?? 'unknown';
-			const statusDisplay: Record<string, { label: string; color: string }> = {
-				open: { label: 'BOARDING', color: '#22c55e' },
-				'on-the-spot': { label: 'STANDBY', color: '#eab308' },
-				waitlist: { label: 'WAITLIST', color: '#f59e0b' },
-				closed: { label: 'GATE CLOSED', color: '#94a3b8' }
-			};
-			const { label: statusLabel, color: badgeColor } = statusDisplay[rawStatus] ?? {
-				label: 'CHECKING STATUS',
-				color: '#94a3b8'
-			};
+			const { label: statusLabel, color: badgeColor } = getStatusHex(comp.wcif?.registrationStatus);
 
 			const esc = (s: string) =>
 				s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');

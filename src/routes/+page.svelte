@@ -1,7 +1,12 @@
 <script lang="ts">
-	import type { EnrichedCompetition, WCIFPublicData } from '$lib/server/wca/types';
-	import type { FlightSearchResult } from '$lib/server/flights/types';
-	import type { AirportFlight, CompFlightData } from '$lib/types';
+	import type { EnrichedCompetition } from '$lib/server/wca/types';
+	import type { CompFlightData } from '$lib/types';
+	import { retryUnknownComps } from '$lib/utils/wcif-retry';
+	import {
+		fetchFlightsForCompetitions,
+		searchFlightsForComp,
+		fetchFlightForAirport
+	} from '$lib/utils/flight-search';
 	import { enrichWCIF } from '$lib/utils/enrich-wcif';
 	import DateRangePicker from '$lib/components/DateRangePicker.svelte';
 	import CompetitionList from '$lib/components/CompetitionList.svelte';
@@ -13,15 +18,10 @@
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { haversine, haversineMiles } from '$lib/utils/distance';
-	import { findNearestAirports } from '$lib/utils/airport-lookup';
 
 	const { data } = $props();
 
-	function shiftDate(dateStr: string, days: number): string {
-		const d = new Date(dateStr + 'T00:00:00');
-		d.setDate(d.getDate() + days);
-		return d.toISOString().split('T')[0];
-	}
+
 
 	// Read initial state from URL params
 	function readUrlState() {
@@ -100,63 +100,14 @@
 	let loading = $state(false);
 	let error: string | null = $state(null);
 
-	async function retryUnknownComps() {
-		const unknown = competitions.filter((c) => c.wcif === null);
-		if (unknown.length === 0) return;
-
-		const MAX_RETRIES = 5;
-		const BATCH_SIZE = 5;
-		let attempt = 0;
-		let remaining = unknown.map((c) => c.id);
-
-		while (remaining.length > 0 && attempt < MAX_RETRIES) {
-			// No delay on first attempt (eager load), backoff on retries
-			if (attempt > 0) {
-				const delay = Math.min(2000 * 2 ** (attempt - 1), 30000);
-				await new Promise((r) => setTimeout(r, delay));
-			}
-			attempt++;
-
-			const stillFailing: string[] = [];
-
-			// Fetch in parallel batches
-			for (let i = 0; i < remaining.length; i += BATCH_SIZE) {
-				const batch = remaining.slice(i, i + BATCH_SIZE);
-				const results = await Promise.allSettled(
-					batch.map(async (id) => {
-						const res = await fetch(`/api/wcif/${encodeURIComponent(id)}`);
-						if (!res.ok) throw new Error(`HTTP ${res.status}`);
-						const { wcif } = (await res.json()) as { wcif: WCIFPublicData };
-						return { id, wcif };
-					})
-				);
-
-				for (const result of results) {
-					if (result.status === 'fulfilled') {
-						const { id, wcif } = result.value;
-						const comp = competitions.find((c) => c.id === id);
-						if (comp) {
-							comp.wcif = enrichWCIF(comp.cancelled_at, wcif);
-						}
-					} else {
-						// Extract the ID from the batch by index
-						const idx = results.indexOf(result);
-						stillFailing.push(batch[idx]);
-					}
-				}
-				competitions = [...competitions]; // trigger reactivity after each batch
-			}
-
-			remaining = stillFailing;
-		}
-	}
-
 	// Trigger retry for STATUS UNKNOWN competitions
 	$effect(() => {
 		if (hasSearched && competitions.length > 0) {
 			const hasUnknown = competitions.some((c) => c.wcif === null);
 			if (hasUnknown) {
-				retryUnknownComps();
+				retryUnknownComps(competitions, (updated) => {
+					competitions = updated;
+				});
 			}
 		}
 	});
@@ -196,139 +147,19 @@
 	// Fetch flights for non-driveable competitions
 	let flightFetchKey = $state('');
 
-	interface FlightApiResponse extends FlightSearchResult {
-		fallbackUrl?: string;
-	}
-
-	async function fetchFlightForAirport(
-		homeAirport: string,
-		destIata: string,
-		departDate: string,
-		returnDate: string,
-		nocache = false
-	): Promise<AirportFlight | null> {
-		try {
-			const cacheParam = nocache ? '&nocache=1' : '';
-			const res = await fetch(
-				`/api/flights?origin=${homeAirport}&destination=${destIata}&departDate=${departDate}&returnDate=${returnDate}${cacheParam}`
-			);
-			if (!res.ok) return null;
-			const data: FlightApiResponse = await res.json();
-			if (data.flights.length === 0) return null;
-			return {
-				flight: data.flights[0],
-				fetchedAt: data.fetchedAt,
-				fallbackUrl: data.fallbackUrl ?? null
-			};
-		} catch {
-			return null;
-		}
-	}
-
-	const INITIAL_AIRPORT_COUNT = 5;
-	const MAX_AIRPORT_COUNT = 20;
-
-	async function searchFlightsForComp(
-		comp: EnrichedCompetition,
-		homeAirport: string,
-		nocache = false
-	): Promise<CompFlightData> {
-		const dayBefore = shiftDate(comp.start_date, -1);
-		const dayAfter = shiftDate(comp.end_date, 1);
-		const allNearby = findNearestAirports(
-			comp.latitude_degrees,
-			comp.longitude_degrees,
-			MAX_AIRPORT_COUNT
-		).filter((a) => a.airport.iata !== homeAirport);
-
-		// Start with first 5, expand if none have flights
-		let searched = 0;
-		const allResults: NonNullable<Awaited<ReturnType<typeof fetchFlightForAirport>>>[] = [];
-		let fallbackUrl: string | null = null;
-
-		while (searched < allNearby.length && allResults.length === 0) {
-			const chunk = allNearby.slice(searched, searched + INITIAL_AIRPORT_COUNT);
-			const results = await Promise.all(
-				chunk.map((a) =>
-					fetchFlightForAirport(homeAirport, a.airport.iata, dayBefore, dayAfter, nocache)
-				)
-			);
-			for (const r of results) {
-				if (r) {
-					allResults.push(r);
-					if (!fallbackUrl) fallbackUrl = r.fallbackUrl;
-				}
-			}
-			searched += INITIAL_AIRPORT_COUNT;
-		}
-
-		if (allResults.length === 0) {
-			return { primary: null, cheaperAlt: null, fallbackUrl };
-		}
-
-		const primary: AirportFlight = {
-			flight: allResults[0].flight,
-			fetchedAt: allResults[0].fetchedAt,
-			fallbackUrl: allResults[0].fallbackUrl
-		};
-
-		let cheaperAlt: AirportFlight | null = null;
-		const cheaperFarther = allResults
-			.slice(1)
-			.filter(
-				(r) =>
-					r.flight.price < allResults[0].flight.price &&
-					r.flight.destination !== allResults[0].flight.destination
-			)
-			.sort((a, b) => a.flight.price - b.flight.price)[0];
-		if (cheaperFarther) {
-			cheaperAlt = {
-				flight: cheaperFarther.flight,
-				fetchedAt: cheaperFarther.fetchedAt,
-				fallbackUrl: cheaperFarther.fallbackUrl
-			};
-		}
-
-		return { primary, cheaperAlt, fallbackUrl };
-	}
-
-	async function fetchFlightsForCompetitions(
-		comps: EnrichedCompetition[],
-		homeAirport: string,
-		radius: number
-	) {
-		const nonDriveable = comps.filter((c) => {
-			const dist = distances.get(c.id);
-			return dist === undefined || dist > radius;
-		});
-
-		flightsLoading = true;
-		const newFlights = new Map<string, CompFlightData>();
-		const BATCH_SIZE = 3;
-
-		for (let i = 0; i < nonDriveable.length; i += BATCH_SIZE) {
-			const batch = nonDriveable.slice(i, i + BATCH_SIZE);
-			await Promise.allSettled(
-				batch.map(async (comp) => {
-					const result = await searchFlightsForComp(comp, homeAirport);
-					newFlights.set(comp.id, result);
-				})
-			);
-			flights = new Map(newFlights);
-		}
-		flightsLoading = false;
-	}
-
 	// Trigger flight fetching when competitions or home airport change
 	$effect(() => {
 		const key = `${competitions.map((c) => c.id).join(',')}:${preferences.current.homeAirport}`;
 		if (key !== flightFetchKey && competitions.length > 0 && preferences.current.homeAirport) {
 			flightFetchKey = key;
+			flightsLoading = true;
 			fetchFlightsForCompetitions(
 				competitions,
 				preferences.current.homeAirport,
-				preferences.current.driveableRadius
-			);
+				distances,
+				preferences.current.driveableRadius,
+				(updated) => { flights = updated; }
+			).then(() => { flightsLoading = false; });
 		}
 	});
 

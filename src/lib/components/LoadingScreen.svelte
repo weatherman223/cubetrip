@@ -26,12 +26,12 @@
 	</div>
 
 	<!-- Progress bar -->
-	<div class="mb-6 h-0.5 w-64 overflow-hidden rounded-full bg-airline-slate/30">
+	<div class="mb-6 h-0.5 w-64 overflow-hidden rounded-full bg-airline-slate/30" role="progressbar" aria-label="Loading competitions">
 		<div class="progress-bar h-full rounded-full bg-airline-amber"></div>
 	</div>
 
 	<!-- Status text -->
-	<div class="h-5 text-center">
+	<div class="h-5 text-center" aria-live="polite" aria-atomic="true">
 		<p
 			class="status-text font-mono text-[11px] tracking-[0.2em] text-airline-slate-light uppercase"
 		>

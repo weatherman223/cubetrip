@@ -202,10 +202,12 @@
 	<div class="mb-2 flex items-center gap-1 font-mono text-[10px] tracking-wider">
 		<span class="mr-1 text-airline-slate-light uppercase">Color by:</span>
 		<button
+			aria-pressed={colorMode === 'status'}
 			onclick={() => colorMode = 'status'}
 			class="rounded-full px-3 py-1 transition-colors {colorMode === 'status' ? 'bg-airline-amber text-airline-dark' : 'bg-airline-dark-card text-airline-slate-light hover:bg-airline-slate/20'}"
 		>STATUS</button>
 		<button
+			aria-pressed={colorMode === 'travel'}
 			onclick={() => colorMode = 'travel'}
 			class="rounded-full px-3 py-1 transition-colors {colorMode === 'travel' ? 'bg-airline-amber text-airline-dark' : 'bg-airline-dark-card text-airline-slate-light hover:bg-airline-slate/20'}"
 		>TRAVEL</button>
@@ -213,6 +215,8 @@
 
 	<div
 		bind:this={mapContainer}
+		role="region"
+		aria-label="Competition map"
 		class="h-[300px] w-full overflow-hidden rounded-xl border border-airline-slate/30 shadow-lg sm:h-[400px] md:h-[500px]"
 	></div>
 

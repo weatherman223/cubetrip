@@ -59,6 +59,19 @@
 	function handleBackdrop(e: MouseEvent) {
 		if (e.target === e.currentTarget) handleSave();
 	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') handleSave();
+	}
+
+	let panelEl = $state<HTMLDivElement | undefined>(undefined);
+
+	$effect(() => {
+		if (open && panelEl) {
+			// Focus the panel on open so keyboard users start inside the dialog
+			panelEl.focus();
+		}
+	});
 </script>
 
 {#if open}
@@ -66,20 +79,26 @@
 	<div
 		class="fixed inset-0 z-[1000] flex items-center justify-center p-4"
 		onmousedown={handleBackdrop}
+		onkeydown={handleKeydown}
 	>
 		<!-- Backdrop -->
 		<div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
 
 		<!-- Panel -->
 		<div
-			class="modal-enter relative w-full max-w-md overflow-hidden rounded-2xl border border-airline-slate/40 bg-airline-navy shadow-2xl shadow-black/50"
+			bind:this={panelEl}
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="prefs-title"
+			tabindex="-1"
+			class="modal-enter relative w-full max-w-md overflow-hidden rounded-2xl border border-airline-slate/40 bg-airline-navy shadow-2xl shadow-black/50 focus:outline-none"
 		>
 			<!-- Header bar -->
 			<div
 				class="flex items-center justify-between border-b border-airline-slate/30 bg-airline-midnight px-6 py-4"
 			>
 				<div>
-					<p class="font-mono text-[10px] tracking-[0.3em] text-airline-amber uppercase">
+					<p id="prefs-title" class="font-mono text-[10px] tracking-[0.3em] text-airline-amber uppercase">
 						PASSENGER SETTINGS
 					</p>
 					<p class="mt-0.5 text-xs text-slate-500">Configure your home base</p>
@@ -142,6 +161,7 @@
 					>
 						<button
 							type="button"
+							aria-pressed={unit === 'miles'}
 							onclick={() => {
 							if (unit !== 'miles') {
 								radius = Math.round(radius / 1.60934);
@@ -157,6 +177,7 @@
 						</button>
 						<button
 							type="button"
+							aria-pressed={unit === 'km'}
 							onclick={() => {
 							if (unit !== 'km') {
 								radius = Math.round(radius * 1.60934);

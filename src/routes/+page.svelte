@@ -438,6 +438,7 @@
 					class="inline-flex rounded-lg border border-airline-slate/40 bg-airline-midnight p-0.5"
 				>
 					<button
+						aria-pressed={viewMode === 'list'}
 						onclick={() => (viewMode = 'list')}
 						class="cursor-pointer rounded-md px-3 py-1 font-mono text-[10px] font-semibold tracking-wider transition-all
 							{viewMode === 'list'
@@ -447,6 +448,7 @@
 						LIST
 					</button>
 					<button
+						aria-pressed={viewMode === 'map'}
 						onclick={() => (viewMode = 'map')}
 						class="cursor-pointer rounded-md px-3 py-1 font-mono text-[10px] font-semibold tracking-wider transition-all
 							{viewMode === 'map'
@@ -461,7 +463,7 @@
 	</section>
 
 	<!-- Main content -->
-	<main class="mx-auto max-w-5xl px-4 py-8">
+	<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
 		<p class="mb-6 font-mono text-xs tracking-wider text-airline-slate-light">
 			{filteredCompetitions.length} DEPARTURE{filteredCompetitions.length !== 1 ? 'S' : ''} FOUND
 		</p>

@@ -123,7 +123,7 @@
 							<button
 								onclick={() => onRefresh?.(competition.id)}
 								class="cursor-pointer font-mono text-[9px] text-slate-400 transition-colors hover:text-airline-amber"
-								title="Refresh data"
+								aria-label="Refresh {competition.name}"
 							>
 								↻
 							</button>

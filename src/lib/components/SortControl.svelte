@@ -23,6 +23,7 @@
 	</span>
 	{#each SORT_OPTIONS as opt}
 		<button
+			aria-pressed={currentSort === opt.value}
 			onclick={() => onSort(opt.value)}
 			class="cursor-pointer rounded-full border px-2.5 py-0.5 font-mono text-[10px] tracking-wider transition-all
 				{currentSort === opt.value

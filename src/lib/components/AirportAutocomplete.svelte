@@ -114,6 +114,12 @@
 		}}
 		onblur={handleBlur}
 		type="text"
+		role="combobox"
+		aria-expanded={isOpen && filteredResults.length > 0}
+		aria-haspopup="listbox"
+		aria-autocomplete="list"
+		aria-controls="airport-listbox"
+		aria-activedescendant={focusedIndex >= 0 ? `airport-opt-${focusedIndex}` : undefined}
 		placeholder="Search by code, city, or name…"
 		autocomplete="off"
 		class="w-full rounded-lg border border-airline-slate bg-airline-midnight px-3 py-2 font-mono text-sm text-white transition-colors placeholder:text-airline-slate-light/50 focus:border-airline-amber focus:outline-none"
@@ -121,12 +127,15 @@
 
 	{#if isOpen && filteredResults.length > 0}
 		<ul
+			id="airport-listbox"
+			role="listbox"
 			class="absolute top-full z-50 mt-1 max-h-64 w-full overflow-y-auto overscroll-contain rounded-lg border border-airline-slate/60 bg-airline-navy shadow-xl shadow-black/40"
 		>
 			{#each filteredResults as airport, i}
-				<li>
+				<li role="option" id="airport-opt-{i}" aria-selected={i === focusedIndex}>
 					<button
 						type="button"
+						tabindex="-1"
 						onmousedown={() => selectAirport(airport)}
 						class="flex w-full cursor-pointer items-baseline gap-2 px-3 py-2 text-left transition-colors
 							{i === focusedIndex

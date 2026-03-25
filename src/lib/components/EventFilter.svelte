@@ -22,8 +22,9 @@
 	{#each ALL_EVENT_IDS as eventId}
 		{@const isSelected = selectedEvents.has(eventId)}
 		<button
+			aria-pressed={isSelected}
 			onclick={() => onToggle(eventId)}
-			class="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] transition-all
+			class="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2 py-1.5 font-mono text-[10px] transition-all
 				{isSelected
 				? 'border-airline-amber bg-airline-amber text-white shadow-sm shadow-airline-amber/20'
 				: 'border-airline-slate/40 text-airline-slate-light hover:border-airline-slate-light hover:text-white'}"

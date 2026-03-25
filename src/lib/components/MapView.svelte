@@ -33,6 +33,8 @@
 		homeLongitude?: number | null;
 	} = $props();
 
+	let colorMode = $state<'status' | 'travel'>('status');
+
 	let mapContainer: HTMLDivElement | undefined;
 	let mapInstance: L.Map | undefined;
 	let markersLayer: L.LayerGroup | undefined;
@@ -85,6 +87,7 @@
 		homeLatitude;
 		homeLongitude;
 		driveableRadius;
+		colorMode;
 
 		if (mapInstance && L && markersLayer) {
 			updateMarkers();
@@ -138,11 +141,23 @@
 			const flightData = flights.get(comp.id);
 			const hasFlight = !!flightData?.primary;
 
-			// Color: green=driveable, blue=has flights, gray=no data
-			let color = '#94a3b8'; // gray
-			if (isDriveable)
-				color = '#22c55e'; // green
-			else if (hasFlight) color = '#38bdf8'; // sky blue
+			let color: string;
+			if (colorMode === 'status') {
+				// Color by registration status
+				const isCancelled = comp.cancelled_at !== null;
+				const status = comp.wcif?.registrationStatus;
+				if (isCancelled) color = '#ef4444';
+				else if (status === 'open') color = '#22c55e';
+				else if (status === 'on-the-spot') color = '#eab308';
+				else if (status === 'waitlist') color = '#f59e0b';
+				else if (status === 'closed') color = '#94a3b8';
+				else color = '#94a3b8';
+			} else {
+				// Color by travel data: green=driveable, blue=has flights, gray=no data
+				color = '#94a3b8';
+				if (isDriveable) color = '#22c55e';
+				else if (hasFlight) color = '#38bdf8';
+			}
 
 			const marker = L.circleMarker([comp.latitude_degrees, comp.longitude_degrees], {
 				radius: 8,
@@ -175,14 +190,17 @@
 				color: '#94a3b8'
 			};
 
+			const esc = (s: string) =>
+				s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+			const safeUrl = comp.url?.startsWith('https://') ? esc(comp.url) : '#';
 			marker.bindPopup(`
 				<div style="font-family:'JetBrains Mono',monospace;min-width:180px">
-					<div style="font-size:13px;font-weight:bold;margin-bottom:4px">${comp.name}</div>
-					<div style="font-size:11px;color:#64748b;margin-bottom:6px">${comp.city} · ${comp.date_range}</div>
-					<span style="display:inline-block;background:${badgeColor};color:white;font-size:9px;padding:1px 6px;border-radius:9px;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">${statusLabel}</span>
-					${travelInfo ? `<div style="font-size:12px;font-weight:bold;color:#f59e0b;margin-top:4px">${travelInfo}</div>` : ''}
+					<div style="font-size:13px;font-weight:bold;margin-bottom:4px">${esc(comp.name)}</div>
+					<div style="font-size:11px;color:#64748b;margin-bottom:6px">${esc(comp.city)} · ${esc(comp.date_range)}</div>
+					<span style="display:inline-block;background:${esc(badgeColor)};color:white;font-size:9px;padding:1px 6px;border-radius:9px;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">${esc(statusLabel)}</span>
+					${travelInfo ? `<div style="font-size:12px;font-weight:bold;color:#f59e0b;margin-top:4px">${esc(travelInfo)}</div>` : ''}
 					<div style="margin-top:6px">
-						<a href="${comp.url}" target="_blank" style="font-size:10px;color:#38bdf8;text-decoration:none">VIEW ON WCA →</a>
+						<a href="${safeUrl}" target="_blank" style="font-size:10px;color:#38bdf8;text-decoration:none">VIEW ON WCA →</a>
 					</div>
 				</div>
 			`);
@@ -200,7 +218,43 @@
 	}
 </script>
 
-<div
-	bind:this={mapContainer}
-	class="h-[300px] w-full overflow-hidden rounded-xl border border-airline-slate/30 shadow-lg sm:h-[400px] md:h-[500px]"
-></div>
+<div class="relative">
+	<!-- Color mode toggle -->
+	<div class="mb-2 flex items-center gap-1 font-mono text-[10px] tracking-wider">
+		<span class="mr-1 text-airline-slate-light uppercase">Color by:</span>
+		<button
+			onclick={() => colorMode = 'status'}
+			class="rounded-full px-3 py-1 transition-colors {colorMode === 'status' ? 'bg-airline-amber text-airline-dark' : 'bg-airline-dark-card text-airline-slate-light hover:bg-airline-slate/20'}"
+		>STATUS</button>
+		<button
+			onclick={() => colorMode = 'travel'}
+			class="rounded-full px-3 py-1 transition-colors {colorMode === 'travel' ? 'bg-airline-amber text-airline-dark' : 'bg-airline-dark-card text-airline-slate-light hover:bg-airline-slate/20'}"
+		>TRAVEL</button>
+	</div>
+
+	<div
+		bind:this={mapContainer}
+		class="h-[300px] w-full overflow-hidden rounded-xl border border-airline-slate/30 shadow-lg sm:h-[400px] md:h-[500px]"
+	></div>
+
+	<!-- Legend overlay -->
+	<div class="absolute bottom-3 left-3 z-[1000] rounded-lg bg-airline-dark/90 px-3 py-2 font-mono text-[9px] tracking-wider text-white backdrop-blur-sm">
+		{#if colorMode === 'status'}
+			<div class="mb-1 text-airline-slate-light uppercase">Registration</div>
+			<div class="flex flex-col gap-0.5">
+				<div class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#22c55e"></span> BOARDING</div>
+				<div class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#eab308"></span> STANDBY</div>
+				<div class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#f59e0b"></span> WAITLIST</div>
+				<div class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#94a3b8"></span> GATE CLOSED</div>
+				<div class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#ef4444"></span> CANCELLED</div>
+			</div>
+		{:else}
+			<div class="mb-1 text-airline-slate-light uppercase">Travel Data</div>
+			<div class="flex flex-col gap-0.5">
+				<div class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#22c55e"></span> Driveable</div>
+				<div class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#38bdf8"></span> Flight found</div>
+				<div class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full" style="background:#94a3b8"></span> No data yet</div>
+			</div>
+		{/if}
+	</div>
+</div>

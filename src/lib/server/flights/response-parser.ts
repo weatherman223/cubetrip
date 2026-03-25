@@ -199,7 +199,7 @@ function parseOneFlight(k: Payload, airlineMap: Map<string, string>): FlightResu
  * Date formats from Google: "YYYY-MM-DD" or "Mon, Jan 1"
  * Time formats: "1:30 PM" or "13:30"
  */
-function combineDateAndTime(date: string, time: string): string {
+export function combineDateAndTime(date: string, time: string): string {
 	if (!date || !time) return '';
 
 	// Try to parse the time

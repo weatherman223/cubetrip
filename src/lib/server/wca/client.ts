@@ -19,7 +19,7 @@ export class WCAApiError extends Error {
  * Parse a Link header into a map of rel → URL.
  * Format: `<https://...?page=2>; rel="next", <https://...?page=1>; rel="prev"`
  */
-function parseLinkHeader(header: string | null): Record<string, string> {
+export function parseLinkHeader(header: string | null): Record<string, string> {
 	if (!header) return {};
 	const links: Record<string, string> = {};
 	for (const part of header.split(',')) {

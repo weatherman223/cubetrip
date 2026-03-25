@@ -5,7 +5,7 @@ import type {
 	RegistrationStatus
 } from '$lib/server/wca/types';
 
-function collectActivities(activities: WCIFActivity[]): WCIFActivity[] {
+export function collectActivities(activities: WCIFActivity[]): WCIFActivity[] {
 	const all: WCIFActivity[] = [];
 	for (const a of activities) {
 		all.push(a);
@@ -16,7 +16,7 @@ function collectActivities(activities: WCIFActivity[]): WCIFActivity[] {
 	return all;
 }
 
-function computeScheduleTimes(wcif: WCIFPublicData): {
+export function computeScheduleTimes(wcif: WCIFPublicData): {
 	start: string | null;
 	end: string | null;
 } {
@@ -37,7 +37,7 @@ function computeScheduleTimes(wcif: WCIFPublicData): {
 	return { start: earliest, end: latest };
 }
 
-function computeRegistrationStatus(
+export function computeRegistrationStatus(
 	cancelledAt: string | null,
 	wcif: WCIFPublicData
 ): RegistrationStatus {

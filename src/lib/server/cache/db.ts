@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
-const DB_DIR = resolve('data');
-const DB_PATH = resolve(DB_DIR, 'cache.db');
+const DB_PATH = process.env.DB_PATH ?? resolve('data', 'cache.db');
+const DB_DIR = dirname(DB_PATH);
+console.log(`Cache DB: ${DB_PATH}`);
 
 // Bump this when cached data shapes change — old rows become cache misses
 const CACHE_SCHEMA_VERSION = 1;

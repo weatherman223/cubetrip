@@ -6,11 +6,8 @@ import { invalidateCache } from '$lib/server/cache';
 
 const WCA_ID_RE = /^[A-Za-z0-9]+$/;
 
-export const GET: RequestHandler = async ({ url }) => {
-	const id = url.searchParams.get('id');
-	if (!id) {
-		return json({ error: 'Missing required parameter: id' }, { status: 400 });
-	}
+export const GET: RequestHandler = async ({ params, url }) => {
+	const { id } = params;
 	if (!WCA_ID_RE.test(id)) {
 		return json({ error: 'Invalid competition ID format' }, { status: 400 });
 	}

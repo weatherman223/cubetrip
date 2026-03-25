@@ -69,14 +69,16 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json({ ...result, fallbackUrl });
 	} catch (err) {
 		if (err instanceof QueueFullError) {
-			return json({ error: 'Too many flight requests. Try again later.' }, { status: 429 });
+			return json(
+				{ error: 'Too many flight requests. Try again later.' },
+				{ status: 429, headers: { 'Retry-After': '2' } }
+			);
 		}
 		console.error('Flight search failed:', err);
 		setCache(failKey, true, FAILURE_TTL);
-		return json({
-			flights: [],
-			fetchedAt: new Date().toISOString(),
-			fallbackUrl
-		});
+		return json(
+			{ error: 'Flight data temporarily unavailable', fallbackUrl },
+			{ status: 503 }
+		);
 	}
 };

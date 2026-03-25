@@ -124,7 +124,7 @@
 				const batch = remaining.slice(i, i + BATCH_SIZE);
 				const results = await Promise.allSettled(
 					batch.map(async (id) => {
-						const res = await fetch(`/api/wcif?id=${encodeURIComponent(id)}`);
+						const res = await fetch(`/api/wcif/${encodeURIComponent(id)}`);
 						if (!res.ok) throw new Error(`HTTP ${res.status}`);
 						const { wcif } = (await res.json()) as { wcif: WCIFPublicData };
 						return { id, wcif };
@@ -427,7 +427,7 @@
 		// Step 1: WCIF
 		setRefreshStatus(compId, 'wcif');
 		try {
-			const wcifRes = await fetch(`/api/wcif?id=${encodeURIComponent(compId)}&nocache=1`);
+			const wcifRes = await fetch(`/api/wcif/${encodeURIComponent(compId)}?nocache=1`);
 			if (wcifRes.ok) {
 				const { wcif } = await wcifRes.json();
 				const comp = competitions.find((c) => c.id === compId);

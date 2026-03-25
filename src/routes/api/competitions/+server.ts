@@ -31,7 +31,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		// Return competitions immediately with wcif: null — the client
 		// lazy-loads WCIF per-card via /api/wcif and retryUnknownComps
 		const competitions = raw.map((comp) => ({ ...comp, wcif: null }));
-		return json({ competitions });
+		return json({ competitions, total: competitions.length });
 	} catch (err) {
 		if (err instanceof WCAApiError) {
 			console.error('WCA API error:', err.message);

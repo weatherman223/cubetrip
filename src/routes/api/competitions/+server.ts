@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { fetchCompetitions, enrichCompetitions, WCAApiError } from '$lib/server/wca';
+import { fetchCompetitions, WCAApiError } from '$lib/server/wca';
 import { isValidDate, isDateRangeValid } from '$lib/utils/validation';
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -28,7 +28,9 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	try {
 		const raw = await fetchCompetitions({ start, end });
-		const competitions = await enrichCompetitions(raw);
+		// Return competitions immediately with wcif: null — the client
+		// lazy-loads WCIF per-card via /api/wcif and retryUnknownComps
+		const competitions = raw.map((comp) => ({ ...comp, wcif: null }));
 		return json({ competitions });
 	} catch (err) {
 		if (err instanceof WCAApiError) {

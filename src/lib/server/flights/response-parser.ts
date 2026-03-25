@@ -1,5 +1,10 @@
 import type { FlightResult } from './types';
 
+// Hoisted regex constants for combineDateAndTime
+const TIME_12H_RE = /(\d{1,2}):(\d{2})\s*(AM|PM)/i;
+const TIME_24H_RE = /(\d{1,2}):(\d{2})/;
+const DATE_ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * Parse Google Flights HTML response to extract flight data.
  * Returns empty array on any parsing failure (graceful degradation).
@@ -201,7 +206,7 @@ function combineDateAndTime(date: string, time: string): string {
 	let hours = 0;
 	let minutes = 0;
 
-	const time12 = time.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+	const time12 = time.match(TIME_12H_RE);
 	if (time12) {
 		hours = parseInt(time12[1], 10);
 		minutes = parseInt(time12[2], 10);
@@ -209,7 +214,7 @@ function combineDateAndTime(date: string, time: string): string {
 		if (period === 'PM' && hours !== 12) hours += 12;
 		if (period === 'AM' && hours === 12) hours = 0;
 	} else {
-		const time24 = time.match(/(\d{1,2}):(\d{2})/);
+		const time24 = time.match(TIME_24H_RE);
 		if (time24) {
 			hours = parseInt(time24[1], 10);
 			minutes = parseInt(time24[2], 10);
@@ -217,7 +222,7 @@ function combineDateAndTime(date: string, time: string): string {
 	}
 
 	// If date is already YYYY-MM-DD format
-	if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+	if (DATE_ISO_RE.test(date)) {
 		return `${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
 	}
 

@@ -105,32 +105,46 @@
 		if (unknown.length === 0) return;
 
 		const MAX_RETRIES = 5;
+		const BATCH_SIZE = 5;
 		let attempt = 0;
 		let remaining = unknown.map((c) => c.id);
 
 		while (remaining.length > 0 && attempt < MAX_RETRIES) {
+			// No delay on first attempt (eager load), backoff on retries
+			if (attempt > 0) {
+				const delay = Math.min(2000 * 2 ** (attempt - 1), 30000);
+				await new Promise((r) => setTimeout(r, delay));
+			}
 			attempt++;
-			const delay = Math.min(2000 * 2 ** (attempt - 1), 30000);
-			await new Promise((r) => setTimeout(r, delay));
 
 			const stillFailing: string[] = [];
 
-			for (const id of remaining) {
-				try {
-					const res = await fetch(`/api/wcif?id=${encodeURIComponent(id)}`);
-					if (!res.ok) {
-						stillFailing.push(id);
-						continue;
+			// Fetch in parallel batches
+			for (let i = 0; i < remaining.length; i += BATCH_SIZE) {
+				const batch = remaining.slice(i, i + BATCH_SIZE);
+				const results = await Promise.allSettled(
+					batch.map(async (id) => {
+						const res = await fetch(`/api/wcif?id=${encodeURIComponent(id)}`);
+						if (!res.ok) throw new Error(`HTTP ${res.status}`);
+						const { wcif } = (await res.json()) as { wcif: WCIFPublicData };
+						return { id, wcif };
+					})
+				);
+
+				for (const result of results) {
+					if (result.status === 'fulfilled') {
+						const { id, wcif } = result.value;
+						const comp = competitions.find((c) => c.id === id);
+						if (comp) {
+							comp.wcif = enrichWCIF(comp.cancelled_at, wcif);
+						}
+					} else {
+						// Extract the ID from the batch by index
+						const idx = results.indexOf(result);
+						stillFailing.push(batch[idx]);
 					}
-					const { wcif } = (await res.json()) as { wcif: WCIFPublicData };
-					const comp = competitions.find((c) => c.id === id);
-					if (comp) {
-						comp.wcif = enrichWCIF(comp.cancelled_at, wcif);
-						competitions = [...competitions]; // trigger reactivity
-					}
-				} catch {
-					stillFailing.push(id);
 				}
+				competitions = [...competitions]; // trigger reactivity after each batch
 			}
 
 			remaining = stillFailing;

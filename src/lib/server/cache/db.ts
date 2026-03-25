@@ -16,6 +16,10 @@ db.exec(`
 		expires_at INTEGER NOT NULL
 	)
 `);
+db.exec('CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)');
+
+// Clean expired entries hourly
+setInterval(() => cleanExpired(), 60 * 60 * 1000);
 
 const stmtGet = db.prepare('SELECT value, expires_at FROM cache WHERE key = ?');
 const stmtSet = db.prepare(

@@ -16,6 +16,7 @@ class RequestQueue {
 	private lastRequestTime = 0;
 	private consecutiveErrors = 0;
 	private waiters: Array<() => void> = [];
+	private waitersHead = 0;
 
 	/**
 	 * Enqueue a function to run with rate limiting.
@@ -59,8 +60,14 @@ class RequestQueue {
 			this.active--;
 			this.pending--;
 			// Wake up next waiter
-			const next = this.waiters.shift();
-			if (next) next();
+			if (this.waitersHead < this.waiters.length) {
+				this.waiters[this.waitersHead++]();
+				// Compact when head passes half the array
+				if (this.waitersHead > this.waiters.length / 2) {
+					this.waiters = this.waiters.slice(this.waitersHead);
+					this.waitersHead = 0;
+				}
+			}
 		}
 	}
 

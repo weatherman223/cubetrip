@@ -1,5 +1,6 @@
 import type { WCACompetition, WCIFPublicData, EnrichedCompetition, EnrichedWCIF } from './types';
 import { getCache, setCache, TTL } from '$lib/server/cache';
+import { withCoalesce } from '$lib/server/cache/coalesce';
 import { enrichWCIF } from '$lib/utils/enrich-wcif';
 
 const WCA_API_BASE = 'https://www.worldcubeassociation.org/api/v0';
@@ -79,40 +80,45 @@ export async function fetchCompetitions(params: {
 	const cached = getCache<WCACompetition[]>(cacheKey);
 	if (cached) return cached;
 
-	const MAX_PAGES = 20;
-	const all: WCACompetition[] = [];
-	let nextUrl: string | undefined =
-		`${WCA_API_BASE}/competitions?start=${params.start}&end=${params.end}`;
-	let page = 0;
+	return withCoalesce(cacheKey, async () => {
+		const MAX_PAGES = 20;
+		const all: WCACompetition[] = [];
+		let nextUrl: string | undefined =
+			`${WCA_API_BASE}/competitions?start=${params.start}&end=${params.end}`;
+		let page = 0;
 
-	while (nextUrl) {
-		if (++page > MAX_PAGES) {
-			console.warn(`WCA pagination cap reached (${MAX_PAGES} pages). Truncating results.`);
-			break;
+		while (nextUrl) {
+			if (++page > MAX_PAGES) {
+				console.warn(`WCA pagination cap reached (${MAX_PAGES} pages). Truncating results.`);
+				break;
+			}
+			const result: { data: WCACompetition[]; links: Record<string, string> } =
+				await wcaFetch<WCACompetition[]>(nextUrl);
+			all.push(...result.data);
+			const next = result.links.next;
+			if (next && !next.startsWith(WCA_API_BASE)) {
+				console.warn(`Ignoring unexpected pagination URL: ${next}`);
+				break;
+			}
+			nextUrl = next;
 		}
-		const result: { data: WCACompetition[]; links: Record<string, string> } =
-			await wcaFetch<WCACompetition[]>(nextUrl);
-		all.push(...result.data);
-		const next = result.links.next;
-		if (next && !next.startsWith(WCA_API_BASE)) {
-			console.warn(`Ignoring unexpected pagination URL: ${next}`);
-			break;
-		}
-		nextUrl = next;
-	}
 
-	setCache(cacheKey, all, TTL.COMPETITIONS);
-	return all;
+		setCache(cacheKey, all, TTL.COMPETITIONS);
+		return all;
+	});
 }
 
 /**
  * Fetch WCIF public data for a single competition, trimmed to only the fields CubeTrip needs.
  */
-export async function fetchWCIF(id: string): Promise<WCIFPublicData> {
+export async function fetchWCIF(id: string, skipCache = false): Promise<WCIFPublicData> {
 	const cacheKey = `wcif:${id}`;
-	const cached = getCache<WCIFPublicData>(cacheKey);
-	if (cached) return cached;
+	if (!skipCache) {
+		const cached = getCache<WCIFPublicData>(cacheKey);
+		if (cached) return cached;
+	}
 
+	return withCoalesce(skipCache ? `wcif-fresh:${id}` : cacheKey, async () => {
 	const { data } = await wcaFetch<Record<string, unknown>>(
 		`${WCA_API_BASE}/competitions/${encodeURIComponent(id)}/wcif/public`
 	);
@@ -132,6 +138,7 @@ export async function fetchWCIF(id: string): Promise<WCIFPublicData> {
 
 	setCache(cacheKey, result, TTL.WCIF);
 	return result;
+	});
 }
 
 function delay(ms: number): Promise<void> {

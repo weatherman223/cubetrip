@@ -33,6 +33,7 @@ try {
 	mkdirSync(DB_DIR, { recursive: true });
 	db = new Database(DB_PATH);
 	db.pragma('journal_mode = WAL');
+	db.pragma('busy_timeout = 5000');
 	initTable(db);
 } catch (err) {
 	console.error(`Failed to open cache DB at ${DB_PATH}, falling back to in-memory:`, err);

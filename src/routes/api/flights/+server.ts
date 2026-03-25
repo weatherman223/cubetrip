@@ -3,6 +3,7 @@ import { dev } from '$app/environment';
 import type { RequestHandler } from './$types';
 import { flightProvider } from '$lib/server/flights';
 import { getCache, setCache, TTL } from '$lib/server/cache';
+import { withCoalesce } from '$lib/server/cache/coalesce';
 import type { FlightSearchResult } from '$lib/server/flights';
 import { encodeFlightSearch, buildFlightsUrl } from '$lib/server/flights/protobuf-encoder';
 import { QueueFullError } from '$lib/server/flights/request-queue';
@@ -57,7 +58,9 @@ export const GET: RequestHandler = async ({ url }) => {
 	}
 
 	try {
-		const result = await flightProvider.searchFlights(origin, destination, departDate, returnDate);
+		const result = await withCoalesce(cacheKey, () =>
+			flightProvider.searchFlights(origin, destination, departDate, returnDate)
+		);
 
 		if (result.flights.length > 0) {
 			setCache(cacheKey, result, TTL.FLIGHTS);

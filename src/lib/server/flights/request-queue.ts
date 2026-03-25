@@ -35,15 +35,26 @@ class RequestQueue {
 			await new Promise<void>((resolve) => this.waiters.push(resolve));
 		}
 
-		// Wait for minimum spacing + backoff
-		const now = Date.now();
-		const backoff =
-			this.consecutiveErrors > 0
-				? Math.min(MIN_SPACING_MS * 2 ** this.consecutiveErrors, BACKOFF_CAP_MS)
-				: MIN_SPACING_MS;
-		const elapsed = now - this.lastRequestTime;
-		if (elapsed < backoff) {
-			await new Promise((r) => setTimeout(r, backoff - elapsed));
+		// Wait for minimum spacing + backoff, re-checking concurrency after sleep
+		let ready = false;
+		while (!ready) {
+			// Re-check concurrency — another request may have claimed a slot during our sleep
+			while (this.active >= MAX_CONCURRENT) {
+				await new Promise<void>((resolve) => this.waiters.push(resolve));
+			}
+
+			const now = Date.now();
+			const backoff =
+				this.consecutiveErrors > 0
+					? Math.min(MIN_SPACING_MS * 2 ** this.consecutiveErrors, BACKOFF_CAP_MS)
+					: MIN_SPACING_MS;
+			const elapsed = now - this.lastRequestTime;
+			if (elapsed < backoff) {
+				await new Promise((r) => setTimeout(r, backoff - elapsed));
+				// After sleeping, re-check concurrency before proceeding
+				continue;
+			}
+			ready = true;
 		}
 
 		this.active++;

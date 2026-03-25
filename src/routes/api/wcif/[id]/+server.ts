@@ -2,7 +2,6 @@ import { json } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import type { RequestHandler } from './$types';
 import { fetchWCIF, WCAApiError } from '$lib/server/wca';
-import { invalidateCache } from '$lib/server/cache';
 
 const WCA_ID_RE = /^[A-Za-z0-9]+$/;
 
@@ -12,13 +11,11 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		return json({ error: 'Invalid competition ID format' }, { status: 400 });
 	}
 
-	const nocache = dev && url.searchParams.get('nocache') === '1';
-	if (nocache) {
-		invalidateCache(`wcif:${id}`);
-	}
+	// In dev mode, nocache=1 skips the cache read but still writes back (no TOCTOU gap)
+	const skipCache = dev && url.searchParams.get('nocache') === '1';
 
 	try {
-		const wcif = await fetchWCIF(id);
+		const wcif = await fetchWCIF(id, skipCache);
 		return json({ wcif });
 	} catch (err) {
 		if (err instanceof WCAApiError) {

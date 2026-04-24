@@ -2,6 +2,34 @@
 
 A web app for speedcubers to find WCA competitions they can spontaneously travel to. Pick a date range, see open competitions worldwide, and compare flight costs or driving distances.
 
+> **Beta 0.1.0** — there is no hosted instance right now. To try it, clone and run locally with the quick-start below. See [Beta / Known Limitations](#beta--known-limitations) before reporting bugs.
+
+## Quick Start (Beta Testers)
+
+Requires **Node.js 22+** and a C++ toolchain for `better-sqlite3` (see [Prerequisites](#prerequisites) for your OS).
+
+```sh
+git clone https://github.com/weatherman223/cubetrip.git
+cd cubetrip
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173>. On first load:
+
+1. Pick a **home airport** (e.g. `DEN`). The hero shows up to 4 nearby-airport suggestions as `+ IATA` chips — click any to add multi-origin search (great for NYC/LA/Bay Area).
+2. Click **THIS WEEKEND** or **NEXT WEEKEND** (or pick custom dates).
+3. Hit **SEARCH FLIGHTS**. WCIF loads first (progress bar top-of-list), then fare cards fill in.
+
+Preferences (gear icon / `⚙ SETTINGS`): driving radius, distance units, default event filters, `MAX DAYS EARLY` slider, `SKIP CLOSED COMPS` toggle, additional home airports.
+
+**First cold search on a busy weekend takes 20–30 seconds** (all scrapes hit Google live). Subsequent searches in the same 12-hour window are near-instant thanks to the SQLite cache.
+
+To develop without hitting Google, set `USE_MOCK_FLIGHTS=true` in `.env`.
+
+Bug reports and feedback: open a GitHub issue on this repo with the comp ID, home airport, date range, and what you expected vs. saw.
+
 ## Features
 
 - Search WCA competitions by date range with live registration status

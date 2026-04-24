@@ -1,10 +1,14 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+</script>
+
 <svelte:head>
 	<title>Privacy Notice - CubeTrip</title>
 </svelte:head>
 
 <div class="mx-auto max-w-2xl px-4 py-12">
 	<a
-		href="/"
+		href={resolve('/')}
 		class="inline-flex items-center gap-2 font-mono text-[10px] tracking-widest text-slate-500 uppercase transition-colors hover:text-airline-amber"
 	>
 		&larr; Back to CubeTrip

@@ -196,6 +196,7 @@
 			const gen = ++flightGeneration;
 			// Snapshot current cost-sort order before loading begins
 			if (sortBy === 'cost') {
+				// eslint-disable-next-line svelte/prefer-svelte-reactivity -- built fully, assigned once, never mutated after
 				const order = new Map<string, number>();
 				const sorted = [...competitions].sort((a, b) => getTravelCost(a) - getTravelCost(b));
 				sorted.forEach((c, i) => order.set(c.id, i));

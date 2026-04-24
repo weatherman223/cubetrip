@@ -3,6 +3,7 @@
 	import type { DistanceUnit } from '$lib/stores/preferences.svelte';
 	import type { Airport } from '$lib/types';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { resolve } from '$app/paths';
 	import AirportAutocomplete from './AirportAutocomplete.svelte';
 	import { ALL_EVENT_IDS, EVENT_NAMES } from '$lib/utils/events';
 	import { findNearbyAirports } from '$lib/utils/airport-lookup';
@@ -469,7 +470,7 @@
 						Preferences are saved in your browser. Your airport code is sent to search for flights
 						but is not stored.
 						<a
-							href="/privacy"
+							href={resolve('/privacy')}
 							class="underline underline-offset-2 transition-colors hover:text-slate-300"
 							>Privacy notice</a
 						>

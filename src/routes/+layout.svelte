@@ -1,6 +1,7 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
+	import { resolve } from '$app/paths';
 
 	let { children } = $props();
 </script>
@@ -24,7 +25,7 @@
 	<footer class="border-t border-airline-slate/20 px-4 py-6">
 		<div class="mx-auto max-w-5xl text-center">
 			<a
-				href="/privacy"
+				href={resolve('/privacy')}
 				class="font-mono text-[9px] tracking-widest text-slate-600 uppercase transition-colors hover:text-slate-400"
 			>
 				Privacy Notice

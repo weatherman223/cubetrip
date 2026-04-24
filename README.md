@@ -49,9 +49,9 @@ Bug reports and feedback: open a GitHub issue on this repo with the comp ID, hom
 This is an early beta. A few rough edges to be aware of:
 
 - **Google Flights scraping is fragile.** The parser reverse-engineers Google's HTML and breaks when Google changes their markup. A recent parser regression around multi-stop long-haul itineraries was caught and fixed; similar regressions may recur.
-- **First cold search of a busy weekend takes 20–30 seconds.** The server queue (10 concurrent scrapes @ 150ms spacing) is the bottleneck, not the code. Subsequent searches hit the 12-hour success cache and are near-instant.
+- **First cold search of a busy weekend takes 2-3 minutes.** The server queue (10 concurrent scrapes @ 150ms spacing) is the bottleneck, not the code. Subsequent searches hit the 12-hour success cache and are near-instant.
 - **Running a publicly shared instance risks Google rate-limiting the IP.** For reliable use, run locally or behind trusted users. If you see sustained 429s in the logs, the circuit breaker in `src/lib/server/flights/request-queue.ts` kicks in automatically.
-- **WCIF can be slow or missing.** Some newly-announced competitions haven't published their schedule yet; they'll show `STATUS UNKNOWN` until the next retry round or cache expiry.
+- **WCIF can be slow or missing.** 
 - **No authentication.** User preferences live entirely in `localStorage`. Sharing a browser profile shares preferences.
 
 ## Prerequisites

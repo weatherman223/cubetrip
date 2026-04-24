@@ -18,8 +18,8 @@ Thumbs.db
 !.env.example
 !.env.test
 
-# Cache
-data/
+# Cache (SQLite cache dir at repo root — do NOT match src/lib/data/)
+/data/
 
 # Vite
 vite.config.js.timestamp-*

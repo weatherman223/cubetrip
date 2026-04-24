@@ -2,6 +2,8 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { fetchCompetitions, WCAApiError } from '$lib/server/wca';
 import { isValidDate, isDateRangeValid } from '$lib/utils/validation';
+import { logger } from '$lib/server/logger';
+import { apiError } from '$lib/server/api-errors';
 
 /**
  * GET /api/competitions?start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -14,22 +16,19 @@ export const GET: RequestHandler = async ({ url }) => {
 	const end = url.searchParams.get('end');
 
 	if (!start) {
-		return json({ error: 'Missing required parameter: start' }, { status: 400 });
+		return apiError('MISSING_PARAMETER', 'Missing required parameter: start', 400);
 	}
 	if (!end) {
-		return json({ error: 'Missing required parameter: end' }, { status: 400 });
+		return apiError('MISSING_PARAMETER', 'Missing required parameter: end', 400);
 	}
 	if (!isValidDate(start)) {
-		return json({ error: 'Invalid start date. Expected a valid YYYY-MM-DD' }, { status: 400 });
+		return apiError('INVALID_PARAMETER', 'Invalid start date. Expected a valid YYYY-MM-DD', 400);
 	}
 	if (!isValidDate(end)) {
-		return json({ error: 'Invalid end date. Expected a valid YYYY-MM-DD' }, { status: 400 });
+		return apiError('INVALID_PARAMETER', 'Invalid end date. Expected a valid YYYY-MM-DD', 400);
 	}
 	if (!isDateRangeValid(start, end, 90)) {
-		return json(
-			{ error: 'Date range too large. Maximum span is 90 days' },
-			{ status: 400 }
-		);
+		return apiError('INVALID_PARAMETER', 'Date range too large. Maximum span is 90 days', 400);
 	}
 
 	try {
@@ -40,10 +39,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json({ competitions, total: competitions.length, fetchedAt: new Date().toISOString() });
 	} catch (err) {
 		if (err instanceof WCAApiError) {
-			console.error('WCA API error:', err.message);
-			return json({ error: 'WCA API temporarily unavailable' }, { status: 502 });
+			logger.error({ err }, 'WCA API error fetching competitions');
+			return apiError('UPSTREAM_UNAVAILABLE', 'WCA API temporarily unavailable', 502);
 		}
-		console.error('Unexpected error fetching competitions:', err);
-		return json({ error: 'Internal server error' }, { status: 500 });
+		logger.error({ err }, 'unexpected error fetching competitions');
+		return apiError('INTERNAL_ERROR', 'Internal server error', 500);
 	}
 };

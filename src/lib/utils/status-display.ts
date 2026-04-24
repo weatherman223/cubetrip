@@ -15,6 +15,7 @@ const hexMap: Record<string, StatusDisplayHex> = {
 	open: { label: 'BOARDING', color: '#22c55e' },
 	'on-the-spot': { label: 'STANDBY', color: '#eab308' },
 	waitlist: { label: 'WAITLIST', color: '#f59e0b' },
+	'not-open-yet': { label: 'PREBOARDING', color: '#3b82f6' },
 	closed: { label: 'GATE CLOSED', color: '#94a3b8' },
 	cancelled: { label: 'CANCELLED', color: '#ef4444' }
 };
@@ -25,6 +26,11 @@ const tailwindMap: Record<string, StatusDisplayTailwind> = {
 	open: { label: 'BOARDING', color: 'bg-airline-open', dot: 'bg-airline-open' },
 	'on-the-spot': { label: 'STANDBY', color: 'bg-airline-standby', dot: 'bg-airline-standby' },
 	waitlist: { label: 'WAITLIST', color: 'bg-airline-amber', dot: 'bg-airline-amber' },
+	'not-open-yet': {
+		label: 'PREBOARDING',
+		color: 'bg-airline-upcoming',
+		dot: 'bg-airline-upcoming'
+	},
 	closed: { label: 'GATE CLOSED', color: 'bg-airline-closed', dot: 'bg-airline-closed' },
 	cancelled: { label: 'CANCELLED', color: 'bg-airline-cancelled', dot: 'bg-airline-cancelled' }
 };
@@ -36,7 +42,11 @@ const defaultTailwind: StatusDisplayTailwind = {
 };
 
 /** Get hex color + label for a registration status (used in Leaflet popups/markers). */
-export function getStatusHex(status: RegistrationStatus | string | undefined): StatusDisplayHex {
+export function getStatusHex(
+	status: RegistrationStatus | string | undefined,
+	isCancelled = false
+): StatusDisplayHex {
+	if (isCancelled) return hexMap.cancelled;
 	if (!status) return defaultHex;
 	return hexMap[status] ?? defaultHex;
 }

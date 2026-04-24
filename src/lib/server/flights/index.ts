@@ -1,6 +1,4 @@
 export type { FlightResult, FlightSearchResult, FlightProvider } from './types';
-export { MockProvider } from './mock-provider';
-export { GoogleFlightsProtobufProvider } from './google-flights-provider';
 
 import { env } from '$env/dynamic/private';
 import { MockProvider } from './mock-provider';

@@ -19,7 +19,7 @@
 		EVENTS
 	</span>
 
-	{#each ALL_EVENT_IDS as eventId}
+	{#each ALL_EVENT_IDS as eventId (eventId)}
 		{@const isSelected = selectedEvents.has(eventId)}
 		<button
 			aria-pressed={isSelected}

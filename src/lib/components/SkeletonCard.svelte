@@ -35,7 +35,7 @@
 			<div>
 				<div class="mb-2 h-2.5 w-12 rounded-sm bg-slate-200"></div>
 				<div class="flex gap-2">
-					{#each { length: 5 } as _}
+					{#each { length: 5 } as _, i (i)}
 						<div class="shimmer h-6 w-6 rounded bg-slate-200"></div>
 					{/each}
 				</div>

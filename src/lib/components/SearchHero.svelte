@@ -1,6 +1,9 @@
 <script lang="ts">
 	import AirportAutocomplete from './AirportAutocomplete.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
+	import { findNearbyAirports } from '$lib/utils/airport-lookup';
+	import type { Airport } from '$lib/types';
+	import { getWeekend } from '$lib/utils/dates';
 
 	let {
 		onSearch,
@@ -12,25 +15,15 @@
 
 	let start = $state('');
 	let end = $state('');
+
 	let homeAirport = $state(preferences.current.homeAirport);
-
-	function toYMD(d: Date): string {
-		const y = d.getFullYear();
-		const m = String(d.getMonth() + 1).padStart(2, '0');
-		const day = String(d.getDate()).padStart(2, '0');
-		return `${y}-${m}-${day}`;
-	}
-
-	function getWeekend(weeksAhead: number): { start: string; end: string } {
-		const now = new Date();
-		const day = now.getDay();
-		const daysToSat = ((6 - day + 7) % 7 || 7) + (weeksAhead - 1) * 7;
-		const sat = new Date(now);
-		sat.setDate(now.getDate() + daysToSat);
-		const sun = new Date(sat);
-		sun.setDate(sat.getDate() + 1);
-		return { start: toYMD(sat), end: toYMD(sun) };
-	}
+	let homeLat = $state(preferences.current.homeLatitude);
+	let homeLng = $state(preferences.current.homeLongitude);
+	let additionalOrigins = $state<Airport[]>([...preferences.current.additionalHomeAirports]);
+	// Remount the "add more" autocomplete on each pick so it clears cleanly.
+	let addOriginKey = $state(0);
+	// Collapsed by default once the user has picked at least one — keeps the hero tight.
+	let showAdd = $state(false);
 
 	function selectWeekend(weeksAhead: number) {
 		const wk = getWeekend(weeksAhead);
@@ -40,11 +33,40 @@
 
 	function handleAirportSelect(airport: { iata: string; latitude: number; longitude: number }) {
 		homeAirport = airport.iata;
+		homeLat = airport.latitude;
+		homeLng = airport.longitude;
+		// Clear any additional origin that collides with the new primary.
+		additionalOrigins = additionalOrigins.filter((a) => a.iata !== airport.iata);
 		preferences.update({
 			homeAirport: airport.iata,
 			homeLatitude: airport.latitude,
-			homeLongitude: airport.longitude
+			homeLongitude: airport.longitude,
+			additionalHomeAirports: additionalOrigins
 		});
+	}
+
+	// Suggest up to 4 nearby airports within 120 km, excluding the primary and
+	// anything already added. 4 (not 5 like the modal) keeps the hero layout tight.
+	const suggestedOrigins = $derived.by(() => {
+		if (homeLat === null || homeLng === null) return [] as Airport[];
+		const exclude = [homeAirport, ...additionalOrigins.map((a) => a.iata)].filter(
+			(x): x is string => typeof x === 'string'
+		);
+		return findNearbyAirports(homeLat, homeLng, 120, exclude).slice(0, 4);
+	});
+
+	function addOrigin(airport: Airport) {
+		if (airport.iata === homeAirport) return;
+		if (additionalOrigins.some((a) => a.iata === airport.iata)) return;
+		additionalOrigins = [...additionalOrigins, airport];
+		addOriginKey++;
+		showAdd = false;
+		preferences.update({ additionalHomeAirports: additionalOrigins });
+	}
+
+	function removeOrigin(iata: string) {
+		additionalOrigins = additionalOrigins.filter((a) => a.iata !== iata);
+		preferences.update({ additionalHomeAirports: additionalOrigins });
 	}
 
 	function handleSearch() {
@@ -101,12 +123,86 @@
 			class="rounded-2xl border border-airline-slate/30 bg-airline-navy/80 p-6 shadow-2xl shadow-black/30 backdrop-blur-sm"
 		>
 			<!-- Home Airport -->
-			<div class="mb-5">
-				<p class="mb-1.5 font-mono text-[10px] tracking-widest text-airline-amber uppercase">
+			<div class="mb-4">
+				<p
+					id="home-airport-label"
+					class="mb-1.5 font-mono text-[10px] tracking-widest text-airline-amber uppercase"
+				>
 					HOME AIRPORT
 				</p>
-				<AirportAutocomplete value={homeAirport} onSelect={handleAirportSelect} />
+				<AirportAutocomplete
+					value={homeAirport}
+					onSelect={handleAirportSelect}
+					labelledBy="home-airport-label"
+				/>
 			</div>
+
+			<!-- Also Search From: multi-origin picker. Visible once primary is set so
+				users in metros like NYC/LA can immediately add LGA, EWR, BUR, etc.
+				before kicking off the search. -->
+			{#if homeAirport}
+				<div class="mb-5">
+					<div class="mb-1.5 flex items-baseline justify-between gap-2">
+						<p class="font-mono text-[10px] tracking-widest text-airline-amber uppercase">
+							ALSO SEARCH FROM
+						</p>
+						<span class="font-mono text-[9px] text-slate-500">
+							Multi-airport metro? Add nearby origins.
+						</span>
+					</div>
+
+					{#if additionalOrigins.length > 0}
+						<div class="mb-2 flex flex-wrap gap-1.5">
+							{#each additionalOrigins as origin (origin.iata)}
+								<span
+									class="inline-flex items-center gap-1.5 rounded-full border border-airline-slate bg-airline-midnight px-2 py-0.5 font-mono text-[10px] text-white"
+								>
+									<span class="font-bold text-airline-amber">{origin.iata}</span>
+									<span class="text-slate-400">{origin.city}</span>
+									<button
+										type="button"
+										onclick={() => removeOrigin(origin.iata)}
+										aria-label={`Remove ${origin.iata}`}
+										class="cursor-pointer text-slate-500 transition-colors hover:text-red-400"
+									>
+										×
+									</button>
+								</span>
+							{/each}
+						</div>
+					{/if}
+
+					{#if suggestedOrigins.length > 0}
+						<div class="mb-2 flex flex-wrap gap-1.5">
+							{#each suggestedOrigins as airport (airport.iata)}
+								<button
+									type="button"
+									onclick={() => addOrigin(airport)}
+									class="inline-flex cursor-pointer items-center gap-1 rounded-full border border-airline-slate/40 bg-airline-midnight px-2 py-0.5 font-mono text-[10px] text-slate-300 transition-all hover:border-airline-amber hover:text-white"
+								>
+									<span class="text-airline-amber">+</span>
+									<span class="font-bold">{airport.iata}</span>
+									<span class="text-slate-400">{airport.city}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
+
+					{#if showAdd}
+						{#key addOriginKey}
+							<AirportAutocomplete value={null} onSelect={addOrigin} />
+						{/key}
+					{:else}
+						<button
+							type="button"
+							onclick={() => (showAdd = true)}
+							class="cursor-pointer font-mono text-[10px] tracking-widest text-slate-500 uppercase transition-colors hover:text-airline-amber"
+						>
+							+ ADD ANOTHER AIRPORT
+						</button>
+					{/if}
+				</div>
+			{/if}
 
 			<!-- Weekend quick-selects -->
 			<div class="mb-4 flex gap-2">

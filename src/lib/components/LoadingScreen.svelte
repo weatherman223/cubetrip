@@ -26,7 +26,11 @@
 	</div>
 
 	<!-- Progress bar -->
-	<div class="mb-6 h-0.5 w-64 overflow-hidden rounded-full bg-airline-slate/30" role="progressbar" aria-label="Loading competitions">
+	<div
+		class="mb-6 h-0.5 w-64 overflow-hidden rounded-full bg-airline-slate/30"
+		role="progressbar"
+		aria-label="Loading competitions"
+	>
 		<div class="progress-bar h-full rounded-full bg-airline-amber"></div>
 	</div>
 

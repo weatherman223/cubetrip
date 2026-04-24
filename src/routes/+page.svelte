@@ -5,7 +5,7 @@
 	import {
 		fetchFlightsForCompetitions,
 		searchFlightsForComp,
-		fetchFlightForAirport
+		isFlightLate
 	} from '$lib/utils/flight-search';
 	import { enrichWCIF } from '$lib/utils/enrich-wcif';
 	import DateRangePicker from '$lib/components/DateRangePicker.svelte';
@@ -16,20 +16,15 @@
 	import PreferencesModal from '$lib/components/PreferencesModal.svelte';
 	import SearchHero from '$lib/components/SearchHero.svelte';
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
+	import LoadingProgress from '$lib/components/LoadingProgress.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { haversine, haversineMiles } from '$lib/utils/distance';
+	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 
-	const { data } = $props();
+	import { toYMD } from '$lib/utils/dates';
 
-	// Compute default dates in the user's local timezone (not UTC)
-	function localDateStr(d: Date): string {
-		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-	}
 	const today = new Date();
-	const twoWeeks = new Date(today);
-	twoWeeks.setDate(today.getDate() + 14);
-	const defaultStart = data.start ?? localDateStr(today);
-	const defaultEnd = data.end ?? localDateStr(twoWeeks);
+	const twoWeeks = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 14);
 
 	// Read initial state from URL params
 	function readUrlState() {
@@ -46,8 +41,8 @@
 	const urlState = readUrlState();
 
 	let competitions: EnrichedCompetition[] = $state([]);
-	let startDate = $state(defaultStart);
-	let endDate = $state(defaultEnd);
+	let startDate = $state(toYMD(today));
+	let endDate = $state(toYMD(twoWeeks));
 	let hasSearched = $state(false);
 	let showClosed = $state(urlState.closed === '1');
 	let allowPartial = $state(
@@ -56,19 +51,20 @@
 	let showPreferences = $state(false);
 	let viewMode = $state<'list' | 'map'>(urlState.view === 'map' ? 'map' : 'list');
 	let sortBy = $state<'cost' | 'distance' | 'date' | 'name'>(urlState.sort ?? 'date');
-	let selectedEvents: Set<string> = $state(
-		urlState.events
-			? new Set(urlState.events.split(',').filter(Boolean))
-			: new Set(preferences.current.defaultEvents)
-	);
-	let flights: Map<string, CompFlightData> = $state(new Map());
+	let selectedEvents = urlState.events
+		? new SvelteSet(urlState.events.split(',').filter(Boolean))
+		: new SvelteSet(preferences.current.defaultEvents);
+	let flights = new SvelteMap<string, CompFlightData>();
+	let flightDayProgress = new SvelteMap<string, { daysCompleted: number; totalDays: number }>();
 	let flightsLoading = $state(false);
+	let frozenCostOrder = $state<Map<string, number> | null>(null);
 	let dataFetchedAt: string | null = $state(null);
-	let refreshStatuses: Map<string, 'wcif' | 'flights' | 'done'> = $state(new Map());
+	let refreshStatuses = new SvelteMap<string, 'wcif' | 'flights' | 'done' | 'partial' | 'error'>();
 
 	// Sync state to URL params
 	$effect(() => {
 		if (typeof window === 'undefined' || !hasSearched) return;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- computed inside effect, not reactive state
 		const p = new URLSearchParams();
 		if (startDate) p.set('start', startDate);
 		if (endDate) p.set('end', endDate);
@@ -83,13 +79,11 @@
 	});
 
 	function toggleEvent(eventId: string) {
-		const next = new Set(selectedEvents);
-		if (next.has(eventId)) {
-			next.delete(eventId);
+		if (selectedEvents.has(eventId)) {
+			selectedEvents.delete(eventId);
 		} else {
-			next.add(eventId);
+			selectedEvents.add(eventId);
 		}
-		selectedEvents = next;
 	}
 
 	// Auto-search if URL has start param (shared link)
@@ -108,42 +102,70 @@
 	let loading = $state(false);
 	let error: string | null = $state(null);
 
-	// Trigger retry for STATUS UNKNOWN competitions
+	// Trigger retry for STATUS UNKNOWN competitions. We key on competition IDs so
+	// the effect only fires once per search, not on every in-place wcif mutation
+	// from the retry's onUpdate. A generation counter discards stale callbacks
+	// when a new search starts mid-retry (otherwise a late onUpdate from the
+	// previous search would clobber the current competitions array).
+	let retryKey = '';
+	let retryGeneration = 0;
+	// Tracks whether WCIF retries are currently running. Used to hide the WCIF
+	// progress bar once retries exhaust (some comps legitimately have no WCIF,
+	// so wcifLoaded < wcifTotal is a permanent state, not an in-flight one).
+	let wcifRetriesInFlight = $state(false);
+
 	$effect(() => {
-		if (hasSearched && competitions.length > 0) {
-			const hasUnknown = competitions.some((c) => c.wcif === null);
-			if (hasUnknown) {
-				retryUnknownComps(competitions, (updated) => {
-					competitions = updated;
-				});
-			}
-		}
+		if (!hasSearched || competitions.length === 0) return;
+		const key = competitions.map((c) => c.id).join(',');
+		if (key === retryKey) return;
+		retryKey = key;
+		const hasUnknown = competitions.some((c) => c.wcif === null);
+		if (!hasUnknown) return;
+		const gen = ++retryGeneration;
+		wcifRetriesInFlight = true;
+		retryUnknownComps(competitions, (updated) => {
+			if (gen === retryGeneration) competitions = updated;
+		}).finally(() => {
+			if (gen === retryGeneration) wcifRetriesInFlight = false;
+		});
 	});
 
-	// Compute distances from home airport
+	// Compute distance from the CLOSEST home airport (primary + additionals).
+	// A comp is "driveable" if any of the user's homes can reach it; the DISTANCE
+	// display reflects the nearest one. Single-home users keep today's behavior.
 	const distances = $derived.by(() => {
 		const prefs = preferences.current;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- computed fresh each derivation, never mutated after
 		const map = new Map<string, number>();
 		if (prefs.homeLatitude === null || prefs.homeLongitude === null) return map;
 
 		const distFn = prefs.unit === 'km' ? haversine : haversineMiles;
+		const origins: Array<{ lat: number; lng: number }> = [
+			{ lat: prefs.homeLatitude, lng: prefs.homeLongitude },
+			...prefs.additionalHomeAirports.map((a) => ({ lat: a.latitude, lng: a.longitude }))
+		];
 		for (const c of competitions) {
-			map.set(
-				c.id,
-				distFn(prefs.homeLatitude, prefs.homeLongitude, c.latitude_degrees, c.longitude_degrees)
-			);
+			let min = Infinity;
+			for (const o of origins) {
+				const d = distFn(o.lat, o.lng, c.latitude_degrees, c.longitude_degrees);
+				if (d < min) min = d;
+			}
+			map.set(c.id, min);
 		}
 		return map;
 	});
 
-	const hasHome = $derived(preferences.current.homeAirport !== null);
+	const DRIVE_COST_PER_MILE = 0.2;
+	const KM_PER_MILE = 1.60934;
 
 	/** Estimate travel cost for sorting: drive=$0.20/mi, flight=price, unknown=Infinity */
 	function getTravelCost(comp: EnrichedCompetition): number {
 		const dist = distances.get(comp.id);
 		const driveableRad = preferences.current.driveableRadius;
 		if (dist !== undefined && dist <= driveableRad) {
-			return dist * 0.2; // $0.20/mile gas estimate
+			// dist is in the user's chosen unit; convert to miles for cost estimate
+			const miles = preferences.current.unit === 'km' ? dist / KM_PER_MILE : dist;
+			return miles * DRIVE_COST_PER_MILE;
 		}
 		const flightData = flights.get(comp.id);
 		if (flightData?.primary?.flight) {
@@ -156,24 +178,57 @@
 	let flightFetchKey = $state('');
 	let flightGeneration = 0;
 
-	// Trigger flight fetching when competitions or home airport change
+	// Trigger flight fetching when competitions, home airports, or max-days-before change.
+	// Gated on !wcifRetriesInFlight so WCIF status (for the closed-comp deferral) is
+	// known by the time we start searching. Effect declaration order puts the WCIF
+	// retry effect first, so it sets the flag true synchronously before this runs.
 	$effect(() => {
-		const key = `${competitions.map((c) => c.id).join(',')}:${preferences.current.homeAirport}`;
-		if (key !== flightFetchKey && competitions.length > 0 && preferences.current.homeAirport) {
+		const prefs = preferences.current;
+		const additionalIatas = prefs.additionalHomeAirports.map((a) => a.iata).join(',');
+		const key = `${competitions.map((c) => c.id).join(',')}:${prefs.homeAirport}:${additionalIatas}:${prefs.maxDaysBeforeComp}:${prefs.skipClosedFlights}`;
+		if (
+			key !== flightFetchKey &&
+			competitions.length > 0 &&
+			prefs.homeAirport &&
+			!wcifRetriesInFlight
+		) {
 			flightFetchKey = key;
 			const gen = ++flightGeneration;
+			// Snapshot current cost-sort order before loading begins
+			if (sortBy === 'cost') {
+				const order = new Map<string, number>();
+				const sorted = [...competitions].sort((a, b) => getTravelCost(a) - getTravelCost(b));
+				sorted.forEach((c, i) => order.set(c.id, i));
+				frozenCostOrder = order;
+			}
+
 			flightsLoading = true;
+			flightDayProgress.clear();
+			const homeAirports = [prefs.homeAirport, ...prefs.additionalHomeAirports.map((a) => a.iata)];
 			fetchFlightsForCompetitions(
 				competitions,
-				preferences.current.homeAirport,
+				homeAirports,
 				distances,
-				preferences.current.driveableRadius,
+				prefs.driveableRadius,
 				(updated) => {
 					// Discard stale results if a newer search has started
-					if (gen === flightGeneration) flights = updated;
-				}
+					if (gen === flightGeneration) {
+						for (const [k, v] of updated) flights.set(k, v);
+					}
+				},
+				preferences.current.maxDaysBeforeComp,
+				(compId, daysCompleted, totalDays) => {
+					if (gen === flightGeneration) {
+						flightDayProgress.set(compId, { daysCompleted, totalDays });
+					}
+				},
+				prefs.skipClosedFlights
 			).then(() => {
-				if (gen === flightGeneration) flightsLoading = false;
+				if (gen === flightGeneration) {
+					flightsLoading = false;
+					frozenCostOrder = null;
+					flightDayProgress.clear();
+				}
 			});
 		}
 	});
@@ -188,7 +243,8 @@
 					c.wcif === null ||
 					c.wcif.registrationStatus === 'open' ||
 					c.wcif.registrationStatus === 'waitlist' ||
-					c.wcif.registrationStatus === 'on-the-spot'
+					c.wcif.registrationStatus === 'on-the-spot' ||
+					c.wcif.registrationStatus === 'not-open-yet'
 			);
 		}
 
@@ -199,11 +255,9 @@
 		// Filter out flights with schedule conflicts unless partial attendance is allowed
 		if (!allowPartial) {
 			result = result.filter((c) => {
-				const flightData = flights.get(c.id);
-				const flight = flightData?.primary?.flight;
-				const compStart = c.wcif?.scheduleStartTime;
-				if (!flight || !compStart || !flight.arrivalTime) return true;
-				return flight.arrivalTime <= compStart;
+				const primary = flights.get(c.id)?.primary;
+				if (!primary) return true;
+				return !isFlightLate(primary.flight, c, primary.daysBefore);
 			});
 		}
 
@@ -211,6 +265,11 @@
 		result = [...result].sort((a, b) => {
 			switch (sortBy) {
 				case 'cost': {
+					if (frozenCostOrder) {
+						return (
+							(frozenCostOrder.get(a.id) ?? Infinity) - (frozenCostOrder.get(b.id) ?? Infinity)
+						);
+					}
 					const costA = getTravelCost(a);
 					const costB = getTravelCost(b);
 					return costA - costB;
@@ -235,6 +294,24 @@
 		competitions.filter((c) => c.wcif?.registrationStatus === 'closed').length
 	);
 
+	// Progress counters for the sticky strip. Both streams already push updates via
+	// existing callbacks (retryUnknownComps → competitions reassignment, fetchFlights
+	// → flights.set), so these derivations react without extra wiring.
+	const wcifLoaded = $derived(competitions.filter((c) => c.wcif !== null).length);
+	const wcifTotal = $derived(competitions.length);
+	const nonDriveableCount = $derived(
+		competitions.filter((c) => {
+			const dist = distances.get(c.id);
+			return dist === undefined || dist > preferences.current.driveableRadius;
+		}).length
+	);
+	const flightsResolved = $derived(flights.size);
+	const flightModeSubtitle = $derived(
+		preferences.current.maxDaysBeforeComp === 1
+			? 'Checking day-before flights (auto-widens if needed)'
+			: `Checking 1–${preferences.current.maxDaysBeforeComp} days before`
+	);
+
 	async function searchCompetitions(start: string, end: string) {
 		// Client-side date range validation (server also enforces 90 days)
 		const diffDays =
@@ -252,13 +329,25 @@
 		hasSearched = true;
 		loading = true;
 		error = null;
-		flights = new Map();
+		flights.clear();
+		flightDayProgress.clear();
 		flightFetchKey = '';
+		// Invalidate any in-flight WCIF retry from the previous search so its late
+		// onUpdate callbacks can't clobber the new competitions array.
+		retryGeneration++;
+		retryKey = '';
+		wcifRetriesInFlight = false;
 		try {
 			const res = await fetch(`/api/competitions?start=${start}&end=${end}`);
 			if (!res.ok) {
-				const body = await res.json();
-				throw new Error(body.error || `Request failed (${res.status})`);
+				let msg = `Request failed (${res.status})`;
+				try {
+					const body = await res.json();
+					if (body.error) msg = body.error;
+				} catch {
+					// Non-JSON error response (e.g. proxy HTML page) — use status text
+				}
+				throw new Error(msg);
 			}
 			const body = await res.json();
 			competitions = body.competitions;
@@ -272,17 +361,21 @@
 		}
 	}
 
-	function setRefreshStatus(compId: string, status: 'wcif' | 'flights' | 'done' | null) {
-		const next = new Map(refreshStatuses);
+	function setRefreshStatus(
+		compId: string,
+		status: 'wcif' | 'flights' | 'done' | 'partial' | 'error' | null
+	) {
 		if (status === null) {
-			next.delete(compId);
+			refreshStatuses.delete(compId);
 		} else {
-			next.set(compId, status);
+			refreshStatuses.set(compId, status);
 		}
-		refreshStatuses = next;
 	}
 
 	async function refreshCompetition(compId: string) {
+		let wcifFailed = false;
+		let flightsFailed = false;
+
 		// Step 1: WCIF
 		setRefreshStatus(compId, 'wcif');
 		try {
@@ -294,9 +387,11 @@
 					comp.wcif = enrichWCIF(comp.cancelled_at, wcif);
 					competitions = [...competitions];
 				}
+			} else {
+				wcifFailed = true;
 			}
 		} catch {
-			// Continue to flights even if WCIF fails
+			wcifFailed = true;
 		}
 
 		// Step 2: Flights
@@ -307,32 +402,37 @@
 				const dist = distances.get(compId);
 				const isDriveable = dist !== undefined && dist <= preferences.current.driveableRadius;
 				if (!isDriveable) {
+					const homeAirports = [
+						preferences.current.homeAirport,
+						...preferences.current.additionalHomeAirports.map((a) => a.iata)
+					];
 					const result = await searchFlightsForComp(
 						comp,
-						preferences.current.homeAirport,
+						homeAirports,
+						preferences.current.maxDaysBeforeComp,
 						true
 					);
-					const newFlights = new Map(flights);
-					newFlights.set(compId, result);
-					flights = newFlights;
+					flights.set(compId, result);
 				}
 			}
 		} catch {
-			// Flight refresh failed — not critical
+			flightsFailed = true;
 		}
 
-		// Step 3: Done
+		// Step 3: Determine final status
 		dataFetchedAt = new Date().toISOString();
-		setRefreshStatus(compId, 'done');
+		const finalStatus =
+			wcifFailed && flightsFailed ? 'error' : wcifFailed || flightsFailed ? 'partial' : 'done';
+		setRefreshStatus(compId, finalStatus);
 
-		// Clear the "done" status after the fade animation
+		// Clear the status after the fade animation
 		setTimeout(() => setRefreshStatus(compId, null), 2500);
 	}
 
 	function goHome() {
 		hasSearched = false;
 		competitions = [];
-		flights = new Map();
+		flights.clear();
 		flightFetchKey = '';
 		if (typeof window !== 'undefined') {
 			history.replaceState(null, '', window.location.pathname);
@@ -430,9 +530,29 @@
 				</div>
 			</div>
 
+			<!-- Progress bars (auto-hide when complete). The WCIF bar hides both
+				when all records loaded AND when retries exhaust — some comps
+				legitimately have no WCIF (newly announced, setup pending), and
+				leaving the bar at "57/73" forever looks like a hang. -->
+			{#if wcifRetriesInFlight && wcifTotal > 0 && wcifLoaded < wcifTotal}
+				<LoadingProgress label="WCIF RECORDS" current={wcifLoaded} total={wcifTotal} />
+			{/if}
+			{#if flightsLoading && nonDriveableCount > 0}
+				<LoadingProgress
+					label="FLIGHT FARES"
+					current={Math.min(flightsResolved, nonDriveableCount)}
+					total={nonDriveableCount}
+					subtitle={flightModeSubtitle}
+				/>
+			{/if}
+
 			<!-- Sort + view toggle row -->
 			<div class="flex flex-wrap items-center justify-between gap-2">
-				<SortControl currentSort={sortBy} onSort={(s) => (sortBy = s as typeof sortBy)} {flightsLoading} />
+				<SortControl
+					currentSort={sortBy}
+					onSort={(s) => (sortBy = s as typeof sortBy)}
+					{flightsLoading}
+				/>
 
 				<div
 					class="inline-flex rounded-lg border border-airline-slate/40 bg-airline-midnight p-0.5"
@@ -464,7 +584,7 @@
 
 	<!-- Main content -->
 	<main id="main-content" class="mx-auto max-w-5xl px-4 py-8">
-		<p class="mb-6 font-mono text-xs tracking-wider text-airline-slate-light">
+		<p role="status" class="mb-6 font-mono text-xs tracking-wider text-airline-slate-light">
 			{filteredCompetitions.length} DEPARTURE{filteredCompetitions.length !== 1 ? 'S' : ''} FOUND
 		</p>
 
@@ -477,6 +597,7 @@
 				unit={preferences.current.unit}
 				homeLatitude={preferences.current.homeLatitude}
 				homeLongitude={preferences.current.homeLongitude}
+				additionalHomeAirports={preferences.current.additionalHomeAirports}
 			/>
 		{:else}
 			<CompetitionList
@@ -487,6 +608,7 @@
 				{distances}
 				{flights}
 				{flightsLoading}
+				{flightDayProgress}
 				{dataFetchedAt}
 				onRefresh={refreshCompetition}
 				{refreshStatuses}

@@ -21,7 +21,7 @@
 	<span class="mr-1 font-mono text-[10px] tracking-widest text-airline-slate-light uppercase">
 		SORT
 	</span>
-	{#each SORT_OPTIONS as opt}
+	{#each SORT_OPTIONS as opt (opt.value)}
 		<button
 			aria-pressed={currentSort === opt.value}
 			onclick={() => onSort(opt.value)}
@@ -34,6 +34,8 @@
 		</button>
 	{/each}
 	{#if currentSort === 'cost' && flightsLoading}
-		<span class="ml-1 font-mono text-[9px] text-airline-slate-light animate-pulse">(loading prices)</span>
+		<span class="ml-1 animate-pulse font-mono text-[9px] text-airline-slate-light"
+			>(loading prices)</span
+		>
 	{/if}
 </div>

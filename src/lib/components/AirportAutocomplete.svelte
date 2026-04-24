@@ -1,36 +1,29 @@
 <script lang="ts">
-	interface Airport {
-		iata: string;
-		name: string;
-		latitude: number;
-		longitude: number;
-		city: string;
-		country: string;
-	}
+	import type { Airport } from '$lib/types';
 
 	let {
 		value,
-		onSelect
+		onSelect,
+		labelledBy
 	}: {
 		value: string | null;
 		onSelect: (airport: Airport) => void;
+		labelledBy?: string;
 	} = $props();
 
-	let query = $state('');
+	let query = $derived(value ?? '');
 	let isOpen = $state(false);
 	let focusedIndex = $state(-1);
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	let inputEl: HTMLInputElement | undefined;
 
-	$effect(() => {
-		query = value ?? '';
-	});
-
 	let filteredResults: Airport[] = $state([]);
+	let searchError = $state(false);
 
 	async function runFilter(q: string) {
-		if (q.length < 2) {
+		if (q.trim().length < 2) {
 			filteredResults = [];
+			searchError = false;
 			return;
 		}
 		try {
@@ -38,25 +31,25 @@
 			if (res.ok) {
 				const data = await res.json();
 				filteredResults = data.airports;
+				searchError = false;
+			} else {
+				searchError = true;
 			}
 		} catch {
-			// Silently fail — user can keep typing
+			searchError = true;
 		}
 	}
 
 	function handleInput() {
-		selected = false;
 		isOpen = true;
 		focusedIndex = -1;
+		searchError = false;
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => runFilter(query), 150);
 	}
 
-	let selected = $state(false);
-
 	function selectAirport(airport: Airport) {
 		query = airport.iata;
-		selected = true;
 		isOpen = false;
 		focusedIndex = -1;
 		onSelect(airport);
@@ -120,6 +113,7 @@
 		aria-autocomplete="list"
 		aria-controls="airport-listbox"
 		aria-activedescendant={focusedIndex >= 0 ? `airport-opt-${focusedIndex}` : undefined}
+		aria-labelledby={labelledBy}
 		placeholder="Search by code, city, or name…"
 		autocomplete="off"
 		class="w-full rounded-lg border border-airline-slate bg-airline-midnight px-3 py-2 font-mono text-sm text-white transition-colors placeholder:text-airline-slate-light/50 focus:border-airline-amber focus:outline-none"
@@ -131,7 +125,7 @@
 			role="listbox"
 			class="absolute top-full z-50 mt-1 max-h-64 w-full overflow-y-auto overscroll-contain rounded-lg border border-airline-slate/60 bg-airline-navy shadow-xl shadow-black/40"
 		>
-			{#each filteredResults as airport, i}
+			{#each filteredResults as airport, i (airport.iata)}
 				<li role="option" id="airport-opt-{i}" aria-selected={i === focusedIndex}>
 					<button
 						type="button"
@@ -152,5 +146,11 @@
 				</li>
 			{/each}
 		</ul>
+	{:else if isOpen && searchError && filteredResults.length === 0}
+		<div
+			class="absolute top-full z-50 mt-1 w-full rounded-lg border border-airline-cancelled/30 bg-airline-navy px-3 py-2 text-center font-mono text-[10px] text-airline-cancelled/80 shadow-xl"
+		>
+			Search failed — try again
+		</div>
 	{/if}
 </div>

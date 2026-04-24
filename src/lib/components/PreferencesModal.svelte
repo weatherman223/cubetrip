@@ -1,29 +1,44 @@
 <script lang="ts">
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import type { DistanceUnit } from '$lib/stores/preferences.svelte';
+	import type { Airport } from '$lib/types';
+	import { SvelteSet } from 'svelte/reactivity';
 	import AirportAutocomplete from './AirportAutocomplete.svelte';
 	import { ALL_EVENT_IDS, EVENT_NAMES } from '$lib/utils/events';
+	import { findNearbyAirports } from '$lib/utils/airport-lookup';
 
 	let { open, onClose }: { open: boolean; onClose: () => void } = $props();
 
 	let homeAirport = $state<string | null>(null);
 	let homeLat = $state<number | null>(null);
 	let homeLng = $state<number | null>(null);
+	let additionalOrigins = $state<Airport[]>([]);
+	// Bumping this key remounts the "add more" autocomplete so it resets after
+	// each pick (its internal $derived query doesn't clear on external value=null).
+	let addOriginKey = $state(0);
 	let radius = $state(300);
 	let unit = $state<DistanceUnit>('miles');
-	let defaultEvents = $state<Set<string>>(new Set());
+	let defaultEvents = new SvelteSet<string>();
 	let allowPartialDefault = $state(false);
+	let maxDaysBeforeComp = $state(3);
+	let skipClosedFlights = $state(true);
 
 	$effect(() => {
 		if (open) {
+			clearConfirmPending = false;
+			clearTimeout(clearConfirmTimer);
 			const p = preferences.current;
 			homeAirport = p.homeAirport;
 			homeLat = p.homeLatitude;
 			homeLng = p.homeLongitude;
+			additionalOrigins = [...p.additionalHomeAirports];
 			radius = p.driveableRadius;
 			unit = p.unit;
-			defaultEvents = new Set(p.defaultEvents);
+			defaultEvents.clear();
+			for (const e of p.defaultEvents) defaultEvents.add(e);
 			allowPartialDefault = p.allowPartialDefault;
+			maxDaysBeforeComp = p.maxDaysBeforeComp;
+			skipClosedFlights = p.skipClosedFlights;
 		}
 	});
 
@@ -33,14 +48,34 @@
 		homeLng = airport.longitude;
 	}
 
+	// Suggest up to 5 nearby airports (within 120 km) that aren't the primary or
+	// already added. 120 km covers multi-airport metros like NYC (JFK/LGA/EWR/HPN/ISP),
+	// LA (LAX/BUR/LGB/ONT/SNA), Bay Area (SFO/OAK/SJC), London (LHR/LGW/STN/LTN/LCY).
+	const suggestedOrigins = $derived.by(() => {
+		if (homeLat === null || homeLng === null) return [] as Airport[];
+		const exclude = [homeAirport, ...additionalOrigins.map((a) => a.iata)].filter(
+			(x): x is string => typeof x === 'string'
+		);
+		return findNearbyAirports(homeLat, homeLng, 120, exclude).slice(0, 5);
+	});
+
+	function addOrigin(airport: Airport) {
+		if (airport.iata === homeAirport) return;
+		if (additionalOrigins.some((a) => a.iata === airport.iata)) return;
+		additionalOrigins = [...additionalOrigins, airport];
+		addOriginKey++;
+	}
+
+	function removeOrigin(iata: string) {
+		additionalOrigins = additionalOrigins.filter((a) => a.iata !== iata);
+	}
+
 	function toggleDefaultEvent(eventId: string) {
-		const next = new Set(defaultEvents);
-		if (next.has(eventId)) {
-			next.delete(eventId);
+		if (defaultEvents.has(eventId)) {
+			defaultEvents.delete(eventId);
 		} else {
-			next.add(eventId);
+			defaultEvents.add(eventId);
 		}
-		defaultEvents = next;
 	}
 
 	function handleSave() {
@@ -48,10 +83,13 @@
 			homeAirport,
 			homeLatitude: homeLat,
 			homeLongitude: homeLng,
+			additionalHomeAirports: additionalOrigins,
 			driveableRadius: radius,
 			unit,
 			defaultEvents: [...defaultEvents],
-			allowPartialDefault
+			allowPartialDefault,
+			maxDaysBeforeComp: Math.max(1, Math.min(7, Math.round(maxDaysBeforeComp))),
+			skipClosedFlights
 		});
 		onClose();
 	}
@@ -60,8 +98,49 @@
 		if (e.target === e.currentTarget) handleSave();
 	}
 
+	const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') handleSave();
+		if (e.key === 'Escape') {
+			handleSave();
+			return;
+		}
+
+		// Focus trap: cycle Tab within the dialog
+		if (e.key === 'Tab' && panelEl) {
+			const focusable = [...panelEl.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+				(el) => !el.hasAttribute('disabled') && el.offsetParent !== null
+			);
+			if (focusable.length === 0) return;
+
+			const first = focusable[0];
+			const last = focusable[focusable.length - 1];
+
+			if (e.shiftKey && document.activeElement === first) {
+				e.preventDefault();
+				last.focus();
+			} else if (!e.shiftKey && document.activeElement === last) {
+				e.preventDefault();
+				first.focus();
+			}
+		}
+	}
+
+	let clearConfirmPending = $state(false);
+	let clearConfirmTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function handleClearClick() {
+		if (clearConfirmPending) {
+			clearTimeout(clearConfirmTimer);
+			clearConfirmPending = false;
+			preferences.reset();
+			onClose();
+		} else {
+			clearConfirmPending = true;
+			clearConfirmTimer = setTimeout(() => {
+				clearConfirmPending = false;
+			}, 3000);
+		}
 	}
 
 	let panelEl = $state<HTMLDivElement | undefined>(undefined);
@@ -98,7 +177,10 @@
 				class="flex items-center justify-between border-b border-airline-slate/30 bg-airline-midnight px-6 py-4"
 			>
 				<div>
-					<p id="prefs-title" class="font-mono text-[10px] tracking-[0.3em] text-airline-amber uppercase">
+					<p
+						id="prefs-title"
+						class="font-mono text-[10px] tracking-[0.3em] text-airline-amber uppercase"
+					>
 						PASSENGER SETTINGS
 					</p>
 					<p class="mt-0.5 text-xs text-slate-500">Configure your home base</p>
@@ -115,11 +197,77 @@
 			<div class="max-h-[60vh] space-y-5 overflow-y-auto px-6 py-5">
 				<!-- Home Airport -->
 				<div>
-					<p class="mb-1.5 font-mono text-[10px] tracking-widest text-airline-amber uppercase">
+					<p
+						id="prefs-airport-label"
+						class="mb-1.5 font-mono text-[10px] tracking-widest text-airline-amber uppercase"
+					>
 						HOME AIRPORT
 					</p>
-					<AirportAutocomplete value={homeAirport} onSelect={handleAirportSelect} />
+					<AirportAutocomplete
+						value={homeAirport}
+						onSelect={handleAirportSelect}
+						labelledBy="prefs-airport-label"
+					/>
 				</div>
+
+				<!-- Also Search From (multi-origin) -->
+				{#if homeAirport}
+					<div>
+						<p class="mb-1.5 font-mono text-[10px] tracking-widest text-airline-amber uppercase">
+							ALSO SEARCH FROM
+						</p>
+						<p class="mb-2 text-[10px] text-slate-500">
+							Add extra origins so flight search quotes fares from each — great for multi-airport
+							metros like NYC, LA, or the Bay Area.
+						</p>
+
+						{#if additionalOrigins.length > 0}
+							<div class="mb-2 flex flex-wrap gap-1.5">
+								{#each additionalOrigins as origin (origin.iata)}
+									<span
+										class="inline-flex items-center gap-1.5 rounded-full border border-airline-slate bg-airline-midnight px-2 py-0.5 font-mono text-[10px] text-white"
+									>
+										<span class="font-bold text-airline-amber">{origin.iata}</span>
+										<span class="text-slate-400">{origin.city}</span>
+										<button
+											type="button"
+											onclick={() => removeOrigin(origin.iata)}
+											aria-label={`Remove ${origin.iata}`}
+											class="cursor-pointer text-slate-500 transition-colors hover:text-red-400"
+										>
+											×
+										</button>
+									</span>
+								{/each}
+							</div>
+						{/if}
+
+						{#if suggestedOrigins.length > 0}
+							<div class="mb-2">
+								<p class="mb-1 font-mono text-[9px] tracking-widest text-slate-500 uppercase">
+									NEARBY SUGGESTIONS
+								</p>
+								<div class="flex flex-wrap gap-1.5">
+									{#each suggestedOrigins as airport (airport.iata)}
+										<button
+											type="button"
+											onclick={() => addOrigin(airport)}
+											class="inline-flex cursor-pointer items-center gap-1 rounded-full border border-airline-slate/40 bg-airline-midnight px-2 py-0.5 font-mono text-[10px] text-slate-300 transition-all hover:border-airline-amber hover:text-white"
+										>
+											<span class="text-airline-amber">+</span>
+											<span class="font-bold">{airport.iata}</span>
+											<span class="text-slate-400">{airport.city}</span>
+										</button>
+									{/each}
+								</div>
+							</div>
+						{/if}
+
+						{#key addOriginKey}
+							<AirportAutocomplete value={null} onSelect={addOrigin} />
+						{/key}
+					</div>
+				{/if}
 
 				<!-- Driveable Radius -->
 				<div>
@@ -163,11 +311,11 @@
 							type="button"
 							aria-pressed={unit === 'miles'}
 							onclick={() => {
-							if (unit !== 'miles') {
-								radius = Math.round(radius / 1.60934);
-								unit = 'miles';
-							}
-						}}
+								if (unit !== 'miles') {
+									radius = Math.round(radius / 1.60934);
+									unit = 'miles';
+								}
+							}}
 							class="cursor-pointer rounded-md px-4 py-1.5 font-mono text-xs font-semibold tracking-wider transition-all
 								{unit === 'miles'
 								? 'bg-airline-amber text-airline-midnight shadow-sm'
@@ -179,11 +327,11 @@
 							type="button"
 							aria-pressed={unit === 'km'}
 							onclick={() => {
-							if (unit !== 'km') {
-								radius = Math.round(radius * 1.60934);
-								unit = 'km';
-							}
-						}}
+								if (unit !== 'km') {
+									radius = Math.round(radius * 1.60934);
+									unit = 'km';
+								}
+							}}
 							class="cursor-pointer rounded-md px-4 py-1.5 font-mono text-xs font-semibold tracking-wider transition-all
 								{unit === 'km'
 								? 'bg-airline-amber text-airline-midnight shadow-sm'
@@ -200,7 +348,7 @@
 					</p>
 					<p class="mb-2 text-[10px] text-slate-500">Pre-select these events each time you visit</p>
 					<div class="flex flex-wrap gap-1.5">
-						{#each ALL_EVENT_IDS as eventId}
+						{#each ALL_EVENT_IDS as eventId (eventId)}
 							{@const isSelected = defaultEvents.has(eventId)}
 							<button
 								type="button"
@@ -215,6 +363,72 @@
 							</button>
 						{/each}
 					</div>
+				</div>
+
+				<!-- Max days before comp -->
+				<div>
+					<label
+						for="max-days-input"
+						class="mb-1.5 block font-mono text-[10px] tracking-widest text-airline-amber uppercase"
+					>
+						MAX DAYS EARLY
+					</label>
+					<p class="mb-2 text-[10px] text-slate-500">
+						At 1, we show day-before flights and only widen if the flight would land during the
+						comp. At 2+, we search every day in the window and show the cheapest — good for finding
+						deals on long trips.
+					</p>
+					<div class="flex items-center gap-3">
+						<input
+							id="max-days-input"
+							type="number"
+							bind:value={maxDaysBeforeComp}
+							min="1"
+							max="7"
+							step="1"
+							class="w-20 rounded-lg border border-airline-slate bg-airline-midnight px-3 py-2 font-mono text-sm text-white transition-colors focus:border-airline-amber focus:outline-none"
+						/>
+						<span class="font-mono text-xs text-slate-400"
+							>day{maxDaysBeforeComp === 1 ? '' : 's'}</span
+						>
+						<input
+							type="range"
+							bind:value={maxDaysBeforeComp}
+							min="1"
+							max="7"
+							step="1"
+							class="radius-slider flex-1"
+							aria-label="Maximum days before competition"
+						/>
+					</div>
+					<p class="mt-1.5 text-[9px] text-slate-500 italic">
+						{maxDaysBeforeComp === 1
+							? 'Default: one day before, auto-widen only if needed to arrive in time.'
+							: `Cheapest-within-window mode: searching every day from 1 to ${maxDaysBeforeComp} before the comp.`}
+					</p>
+				</div>
+
+				<!-- Skip Closed Flights -->
+				<div>
+					<label class="group flex cursor-pointer items-center gap-2.5">
+						<div class="toggle-track relative">
+							<input type="checkbox" bind:checked={skipClosedFlights} class="peer sr-only" />
+							<div
+								class="h-5 w-9 rounded-full bg-airline-slate transition-colors peer-checked:bg-airline-amber"
+							></div>
+							<div
+								class="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4"
+							></div>
+						</div>
+						<div>
+							<span class="font-mono text-[10px] tracking-widest text-airline-amber uppercase">
+								SKIP CLOSED COMPS
+							</span>
+							<p class="text-[10px] text-slate-500">
+								Don't search flights for competitions you can't register for. Faster results.
+							</p>
+						</div>
+					</label>
 				</div>
 
 				<!-- Allow Partial Default -->
@@ -252,14 +466,23 @@
 				</button>
 				<div class="mt-3 flex items-center justify-between">
 					<p class="text-[9px] text-slate-500">
-						Preferences are stored locally in your browser and never sent to our servers.
+						Preferences are saved in your browser. Your airport code is sent to search for flights
+						but is not stored.
+						<a
+							href="/privacy"
+							class="underline underline-offset-2 transition-colors hover:text-slate-300"
+							>Privacy notice</a
+						>
 					</p>
 					<button
 						type="button"
-						onclick={() => { preferences.reset(); onClose(); }}
-						class="cursor-pointer whitespace-nowrap font-mono text-[9px] text-slate-500 underline-offset-2 transition-colors hover:text-red-400 hover:underline"
+						onclick={handleClearClick}
+						class="cursor-pointer font-mono text-[9px] whitespace-nowrap underline-offset-2 transition-colors
+							{clearConfirmPending
+							? 'font-semibold text-red-400 underline'
+							: 'text-slate-500 hover:text-red-400 hover:underline'}"
 					>
-						CLEAR ALL DATA
+						{clearConfirmPending ? 'ARE YOU SURE?' : 'CLEAR ALL DATA'}
 					</button>
 				</div>
 			</div>

@@ -98,7 +98,7 @@ export interface WCIFPublicData {
 
 // ── Enriched Competition (WCA + WCIF merged) ───────────────────────
 
-export type RegistrationStatus = 'open' | 'waitlist' | 'on-the-spot' | 'closed';
+export type RegistrationStatus = 'open' | 'waitlist' | 'on-the-spot' | 'not-open-yet' | 'closed';
 
 export interface EnrichedWCIF {
 	onTheSpotRegistration: boolean;

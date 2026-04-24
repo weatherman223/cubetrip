@@ -1,13 +1,16 @@
 {
 	"name": "cubetrip",
 	"private": true,
-	"version": "0.0.1",
+	"version": "0.1.0-beta.1",
 	"type": "module",
+	"engines": {
+		"node": ">=22"
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''",
+		"prepare": "(svelte-kit sync || echo '') && simple-git-hooks",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run",
@@ -29,9 +32,11 @@
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-svelte": "^3.14.0",
 		"globals": "^17.3.0",
+		"lint-staged": "^16.4.0",
 		"prettier": "^3.8.1",
 		"prettier-plugin-svelte": "^3.4.1",
 		"prettier-plugin-tailwindcss": "^0.7.2",
+		"simple-git-hooks": "^2.13.1",
 		"svelte": "^5.51.0",
 		"svelte-check": "^4.4.2",
 		"tailwindcss": "^4.1.18",
@@ -40,9 +45,20 @@
 		"vite": "^7.3.1",
 		"vitest": "^4.1.1"
 	},
+	"simple-git-hooks": {
+		"pre-commit": "npx lint-staged"
+	},
+	"lint-staged": {
+		"*.{js,ts,svelte}": [
+			"prettier --write",
+			"eslint --fix"
+		],
+		"*.{json,md,css,html,yml,yaml}": "prettier --write"
+	},
 	"dependencies": {
 		"better-sqlite3": "^12.8.0",
 		"leaflet": "^1.9.4",
+		"pino": "^10.3.1",
 		"protobufjs": "^8.0.0"
 	}
 }

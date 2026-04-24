@@ -1,10 +1,12 @@
 # CubeTrip
 
 ## What is this?
+
 A web app for speedcubers to find WCA competitions they can spontaneously travel to.
 Pick a date → see open competitions → see flight costs or driving distance.
 
 ## Stack
+
 - SvelteKit + TypeScript + Tailwind CSS
 - Leaflet + OpenStreetMap for map view
 - Custom Google Flights scraper via Protobuf URL construction (port of fast-flights Python approach)
@@ -13,6 +15,7 @@ Pick a date → see open competitions → see flight costs or driving distance.
 - No authentication required — preferences stored in localStorage
 
 ## Project Structure
+
 - src/lib/server/flights/ — Flight scraping module (FlightProvider interface + GoogleFlightsProtobufProvider)
 - src/lib/server/wca/ — WCA API client
 - src/lib/server/cache/ — SQLite caching layer
@@ -22,6 +25,7 @@ Pick a date → see open competitions → see flight costs or driving distance.
 - src/lib/data/airports.json — Static airport dataset (~500 airports)
 
 ## Key Design Decisions
+
 - ALL external API calls happen server-side only (SvelteKit +server.ts routes)
 - Cache-first architecture: always check SQLite cache before any external request
 - Flight scraping uses Protobuf URL construction (not Playwright/headless browser)
@@ -30,10 +34,12 @@ Pick a date → see open competitions → see flight costs or driving distance.
 - Graceful degradation: if scraping fails, show "Check on Google Flights" link
 
 ## WCA API
+
 - Base: https://www.worldcubeassociation.org/api/v0
 - /competitions?start=YYYY-MM-DD&end=YYYY-MM-DD — paginated 25/page
 - /competitions/:id/wcif/public — schedule, registration info, on-the-spot reg
 
 ## Reference
+
 - fast-flights Python source (for Protobuf schema): github.com/AWeirdDev/flights
 - WCIF spec: github.com/thewca/wcif/blob/stable/specification.md

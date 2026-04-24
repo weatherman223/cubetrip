@@ -24,8 +24,15 @@ function getNextUserAgent(): string {
 	return ua;
 }
 
+import { delay } from '$lib/utils/delay';
+
 const MAX_RETRIES = 3;
-const RETRY_BASE_MS = 1000;
+// 400ms base (→ 400, 800 between attempts) instead of 1000 (→ 1000, 2000).
+// Transient Google Flights scrape failures — connection resets, occasional
+// 5xx — usually succeed immediately on retry, so long backoffs are pure latency.
+// Sustained upstream failures are handled separately by the per-route failure
+// cache and the request queue's exponential backoff.
+const RETRY_BASE_MS = 400;
 
 class FlightFetchError extends Error {
 	constructor(
@@ -49,7 +56,7 @@ export async function fetchFlightPage(tfsParam: string): Promise<string> {
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		if (attempt > 0) {
 			const backoff = RETRY_BASE_MS * 2 ** (attempt - 1);
-			await new Promise((resolve) => setTimeout(resolve, backoff));
+			await delay(backoff);
 		}
 
 		try {

@@ -1,5 +1,4 @@
 import { json } from '@sveltejs/kit';
-import { dev } from '$app/environment';
 import type { RequestHandler } from './$types';
 import { flightProvider } from '$lib/server/flights';
 import { getCache, setCache, TTL } from '$lib/server/cache';
@@ -8,13 +7,21 @@ import type { FlightSearchResult } from '$lib/server/flights';
 import { encodeFlightSearch, buildFlightsUrl } from '$lib/server/flights/protobuf-encoder';
 import { QueueFullError } from '$lib/server/flights/request-queue';
 import { isValidDate } from '$lib/utils/validation';
+import { logger } from '$lib/server/logger';
+import { apiError } from '$lib/server/api-errors';
 
 const IATA_RE = /^[A-Z]{3}$/;
 const FAILURE_TTL = 5 * 60 * 1000; // 5 minutes — short enough to recover from transient failures
 
 /**
  * GET /api/flights?origin=DEN&destination=LAX&departDate=YYYY-MM-DD&returnDate=YYYY-MM-DD
- * Scrapes Google Flights for prices. Results are cached (12h success, 5min failure).
+ * Scrapes Google Flights for prices. Results are cached with two negative-cache kinds:
+ *   - `flights:empty:*` — a successful scrape that found zero flights. Returned as
+ *     200 with `{ flights: [] }`. The client maps this to NO_INVENTORY and adds
+ *     the destination to its per-comp skip set, which keeps mode-B day iterations
+ *     from re-scraping known-empty routes.
+ *   - `flights:fail:*` — a scrape that threw (network, parse, 5xx). Returned as
+ *     503 so the client treats it as transient (doesn't poison NO_INVENTORY).
  * Concurrent requests for the same route are coalesced into a single upstream fetch.
  * Response: { flights: FlightResult[], fetchedAt: string, fallbackUrl: string }
  * Errors: 400 (bad params), 429 (queue full), 503 (scrape failure)
@@ -26,39 +33,44 @@ export const GET: RequestHandler = async ({ url }) => {
 	const returnDate = url.searchParams.get('returnDate');
 
 	if (!origin || !IATA_RE.test(origin)) {
-		return json({ error: 'Invalid or missing origin IATA code' }, { status: 400 });
+		return apiError('INVALID_PARAMETER', 'Invalid or missing origin IATA code', 400);
 	}
 	if (!destination || !IATA_RE.test(destination)) {
-		return json({ error: 'Invalid or missing destination IATA code' }, { status: 400 });
+		return apiError('INVALID_PARAMETER', 'Invalid or missing destination IATA code', 400);
 	}
 	if (!departDate || !isValidDate(departDate)) {
-		return json({ error: 'Invalid or missing departDate (YYYY-MM-DD)' }, { status: 400 });
+		return apiError('INVALID_PARAMETER', 'Invalid or missing departDate (YYYY-MM-DD)', 400);
 	}
 	if (!returnDate || !isValidDate(returnDate)) {
-		return json({ error: 'Invalid or missing returnDate (YYYY-MM-DD)' }, { status: 400 });
+		return apiError('INVALID_PARAMETER', 'Invalid or missing returnDate (YYYY-MM-DD)', 400);
 	}
 
 	// Build the Google Flights deep link (always available as fallback)
 	const tfs = encodeFlightSearch(origin, destination, departDate, returnDate);
 	const fallbackUrl = buildFlightsUrl(tfs);
 
-	const nocache = dev && url.searchParams.get('nocache') === '1';
+	const skipCache = url.searchParams.get('nocache') === '1';
 
 	// Check positive cache
 	const cacheKey = `flights:${origin}:${destination}:${departDate}:${returnDate}`;
-	if (!nocache) {
+	if (!skipCache) {
 		const cached = getCache<FlightSearchResult>(cacheKey);
 		if (cached) return json({ ...cached, fallbackUrl });
 	}
 
-	// Check negative cache (failed scrape)
+	// Two separate negative-cache keys. emptyKey is the sticky "scrape said no
+	// inventory" signal that drives the client's NO_INVENTORY skip set; failKey
+	// is the transient "scrape errored" signal that surfaces as 503 so the
+	// client retries on refresh.
+	const emptyKey = `flights:empty:${origin}:${destination}:${departDate}:${returnDate}`;
 	const failKey = `flights:fail:${origin}:${destination}:${departDate}:${returnDate}`;
-	if (!nocache) {
-		const failCached = getCache<boolean>(failKey);
-		if (failCached) {
-			return json({
-				flights: [],
-				fetchedAt: new Date().toISOString(),
+
+	if (!skipCache) {
+		if (getCache<boolean>(emptyKey)) {
+			return json({ flights: [], fetchedAt: new Date().toISOString(), fallbackUrl });
+		}
+		if (getCache<boolean>(failKey)) {
+			return apiError('SCRAPE_UNAVAILABLE', 'Flight data temporarily unavailable', 503, {
 				fallbackUrl
 			});
 		}
@@ -72,23 +84,23 @@ export const GET: RequestHandler = async ({ url }) => {
 		if (result.flights.length > 0) {
 			setCache(cacheKey, result, TTL.FLIGHTS);
 		} else {
-			// Cache the failure so we don't re-hammer Google
-			setCache(failKey, true, FAILURE_TTL);
+			// Scrape succeeded but route has no inventory. Sticky — the client
+			// reads this as NO_INVENTORY and skips the route on later days.
+			setCache(emptyKey, true, FAILURE_TTL);
 		}
 
 		return json({ ...result, fallbackUrl });
 	} catch (err) {
 		if (err instanceof QueueFullError) {
-			return json(
-				{ error: 'Too many flight requests. Try again later.' },
-				{ status: 429, headers: { 'Retry-After': '2' } }
-			);
+			return apiError('QUEUE_FULL', 'Too many flight requests. Try again later.', 429, undefined, {
+				'Retry-After': '2'
+			});
 		}
-		console.error('Flight search failed:', err);
+		logger.error({ err }, 'flight search failed');
+		// Transient — don't pollute the no-inventory signal.
 		setCache(failKey, true, FAILURE_TTL);
-		return json(
-			{ error: 'Flight data temporarily unavailable', fallbackUrl },
-			{ status: 503 }
-		);
+		return apiError('SCRAPE_UNAVAILABLE', 'Flight data temporarily unavailable', 503, {
+			fallbackUrl
+		});
 	}
 };

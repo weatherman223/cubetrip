@@ -1,5 +1,55 @@
 import { describe, it, expect } from 'vitest';
-import { parseFlightResponse, combineDateAndTime } from './response-parser';
+import {
+	parseFlightResponse,
+	combineDateAndTime,
+	normalizeDate,
+	normalizeTime
+} from './response-parser';
+
+describe('normalizeDate', () => {
+	it('converts Google`s array form [year, month, day] to YYYY-MM-DD', () => {
+		expect(normalizeDate([2026, 4, 25])).toBe('2026-04-25');
+	});
+
+	it('pads single-digit month and day', () => {
+		expect(normalizeDate([2026, 1, 5])).toBe('2026-01-05');
+	});
+
+	it('passes through string form untouched (older payload shape)', () => {
+		expect(normalizeDate('2026-04-25')).toBe('2026-04-25');
+	});
+
+	it('returns empty for null/undefined/malformed arrays', () => {
+		expect(normalizeDate(null)).toBe('');
+		expect(normalizeDate(undefined)).toBe('');
+		expect(normalizeDate([2026])).toBe('');
+		expect(normalizeDate(['2026', '4', '25'])).toBe('');
+	});
+});
+
+describe('normalizeTime', () => {
+	it('converts [hour, minute] array to HH:MM', () => {
+		expect(normalizeTime([17, 40])).toBe('17:40');
+	});
+
+	it('pads single-digit hour and minute', () => {
+		expect(normalizeTime([7, 5])).toBe('07:05');
+	});
+
+	it('treats missing minute as :00 (observed for exact-hour departures)', () => {
+		expect(normalizeTime([16])).toBe('16:00');
+	});
+
+	it('passes through string form untouched', () => {
+		expect(normalizeTime('9:35 AM')).toBe('9:35 AM');
+	});
+
+	it('returns empty for null/undefined/malformed arrays', () => {
+		expect(normalizeTime(null)).toBe('');
+		expect(normalizeTime([])).toBe('');
+		expect(normalizeTime(['17', '40'])).toBe('');
+	});
+});
 
 describe('combineDateAndTime', () => {
 	it('returns empty for empty date', () => {
@@ -61,8 +111,6 @@ describe('parseFlightResponse', () => {
 	});
 
 	it('returns empty array for malformed payload', () => {
-		expect(
-			parseFlightResponse('<script class="ds:1">data:[undefined]</script>')
-		).toEqual([]);
+		expect(parseFlightResponse('<script class="ds:1">data:[undefined]</script>')).toEqual([]);
 	});
 });

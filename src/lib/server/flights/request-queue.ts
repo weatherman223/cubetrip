@@ -1,7 +1,17 @@
-const MAX_QUEUE_DEPTH = 50;
-const MAX_CONCURRENT = 3;
-const MIN_SPACING_MS = 1000;
+import { delay } from '$lib/utils/delay';
+
+// Queue tuning. Conservative defaults used to be 6 concurrent @ 250ms spacing
+// (~24 req/s). After the per-route no-inventory cache absorbed most of the
+// wasted requests and we added a 5-min server-side failure cache, there's
+// enough headroom to push harder: 10 concurrent @ 150ms ≈ 67 req/s. Queue
+// depth raised to 100 so a weekend-scale fan-out (15 comps × 3 origins × 5
+// airports = 225 concurrent requests peaking on day 1) absorbs into the queue
+// instead of cascading 429s at the client.
+const MAX_QUEUE_DEPTH = 100;
+const MAX_CONCURRENT = 10;
+const MIN_SPACING_MS = 150;
 const BACKOFF_CAP_MS = 30000;
+const ERROR_DECAY_MS = 60000;
 
 export class QueueFullError extends Error {
 	constructor() {
@@ -10,12 +20,15 @@ export class QueueFullError extends Error {
 	}
 }
 
-class RequestQueue {
+export class RequestQueue {
 	private pending = 0;
 	private active = 0;
 	private lastRequestTime = 0;
 	private consecutiveErrors = 0;
+	private lastErrorTime = 0;
 	private waiters: Array<() => void> = [];
+	// Head pointer for O(1) dequeue — Array.shift() is O(n) because it re-indexes.
+	// We compact the array when head passes the halfway mark to bound memory growth.
 	private waitersHead = 0;
 
 	/**
@@ -44,13 +57,22 @@ class RequestQueue {
 			}
 
 			const now = Date.now();
+			// Decay: reset backoff if queue is empty and last error was >60s ago
+			if (
+				this.consecutiveErrors > 0 &&
+				this.pending <= 1 &&
+				now - this.lastErrorTime > ERROR_DECAY_MS
+			) {
+				this.consecutiveErrors = 0;
+			}
+
 			const backoff =
 				this.consecutiveErrors > 0
 					? Math.min(MIN_SPACING_MS * 2 ** this.consecutiveErrors, BACKOFF_CAP_MS)
 					: MIN_SPACING_MS;
 			const elapsed = now - this.lastRequestTime;
 			if (elapsed < backoff) {
-				await new Promise((r) => setTimeout(r, backoff - elapsed));
+				await delay(backoff - elapsed);
 				// After sleeping, re-check concurrency before proceeding
 				continue;
 			}
@@ -66,6 +88,7 @@ class RequestQueue {
 			return result;
 		} catch (err) {
 			this.consecutiveErrors++;
+			this.lastErrorTime = Date.now();
 			throw err;
 		} finally {
 			this.active--;
@@ -84,6 +107,10 @@ class RequestQueue {
 
 	get queueDepth(): number {
 		return this.pending;
+	}
+
+	get backoffErrors(): number {
+		return this.consecutiveErrors;
 	}
 }
 

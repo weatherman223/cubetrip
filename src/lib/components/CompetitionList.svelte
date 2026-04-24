@@ -3,6 +3,7 @@
 	import type { CompFlightData } from '$lib/types';
 	import CompetitionCard from './CompetitionCard.svelte';
 	import StatusMessage from './StatusMessage.svelte';
+	import { isFlightLate } from '$lib/utils/flight-search';
 
 	let {
 		competitions,
@@ -14,6 +15,7 @@
 		unit = 'miles',
 		flights = new Map(),
 		flightsLoading = false,
+		flightDayProgress = new Map(),
 		dataFetchedAt = null,
 		onRefresh = null,
 		refreshStatuses = new Map()
@@ -27,9 +29,10 @@
 		unit?: string;
 		flights?: Map<string, CompFlightData>;
 		flightsLoading?: boolean;
+		flightDayProgress?: Map<string, { daysCompleted: number; totalDays: number }>;
 		dataFetchedAt?: string | null;
 		onRefresh?: ((compId: string) => void) | null;
-		refreshStatuses?: Map<string, 'wcif' | 'flights' | 'done'>;
+		refreshStatuses?: Map<string, 'wcif' | 'flights' | 'done' | 'partial' | 'error'>;
 	} = $props();
 </script>
 
@@ -45,14 +48,12 @@
 			{@const dist = distances.get(competition.id) ?? null}
 			{@const flightData = flights.get(competition.id)}
 			{@const isDriveable = dist !== null && dist <= driveableRadius}
-			{@const flight = flightData?.primary?.flight ?? null}
-			{@const compStart = competition.wcif?.scheduleStartTime}
+			{@const primaryFlight = flightData?.primary ?? null}
+			{@const flight = primaryFlight?.flight ?? null}
 			{@const conflict = !!(
-				flight &&
-				compStart &&
-				flight.arrivalTime &&
-				flight.arrivalTime > compStart
+				primaryFlight && isFlightLate(primaryFlight.flight, competition, primaryFlight.daysBefore)
 			)}
+			{@const dayProgress = flightDayProgress.get(competition.id) ?? null}
 			<CompetitionCard
 				{competition}
 				distance={dist}
@@ -60,10 +61,13 @@
 				{unit}
 				cheapestFlight={flight}
 				flightFetchedAt={flightData?.primary?.fetchedAt ?? null}
+				flightDaysBefore={flightData?.primary?.daysBefore ?? null}
 				cheaperAltFlight={flightData?.cheaperAlt?.flight ?? null}
 				flightFallbackUrl={flightData?.fallbackUrl ?? null}
 				flightLoading={flightsLoading && !isDriveable && !flightData}
+				flightDayProgress={dayProgress}
 				hasConflict={conflict}
+				nearestAirportIata={flightData?.nearestAirportIata ?? null}
 				{dataFetchedAt}
 				{onRefresh}
 				refreshStatus={refreshStatuses.get(competition.id) ?? null}

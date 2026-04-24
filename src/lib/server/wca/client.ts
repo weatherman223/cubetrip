@@ -2,6 +2,8 @@ import type { WCACompetition, WCIFPublicData, EnrichedCompetition, EnrichedWCIF 
 import { getCache, setCache, TTL } from '$lib/server/cache';
 import { withCoalesce } from '$lib/server/cache/coalesce';
 import { enrichWCIF } from '$lib/utils/enrich-wcif';
+import { delay } from '$lib/utils/delay';
+import { logger } from '$lib/server/logger';
 
 const WCA_API_BASE = 'https://www.worldcubeassociation.org/api/v0';
 
@@ -40,7 +42,7 @@ async function wcaFetch<T>(url: string): Promise<{ data: T; links: Record<string
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		if (attempt > 0) {
 			const backoff = RETRY_BASE_MS * 2 ** (attempt - 1);
-			console.warn(`WCA API retry ${attempt}/${MAX_RETRIES} for ${url} in ${backoff}ms`);
+			logger.warn({ attempt, maxRetries: MAX_RETRIES, url, backoff }, 'WCA API retry');
 			await delay(backoff);
 		}
 
@@ -89,7 +91,7 @@ export async function fetchCompetitions(params: {
 
 		while (nextUrl) {
 			if (++page > MAX_PAGES) {
-				console.warn(`WCA pagination cap reached (${MAX_PAGES} pages). Truncating results.`);
+				logger.warn({ maxPages: MAX_PAGES }, 'WCA pagination cap reached, truncating');
 				break;
 			}
 			const result: { data: WCACompetition[]; links: Record<string, string> } =
@@ -97,7 +99,7 @@ export async function fetchCompetitions(params: {
 			all.push(...result.data);
 			const next = result.links.next;
 			if (next && !next.startsWith(WCA_API_BASE)) {
-				console.warn(`Ignoring unexpected pagination URL: ${next}`);
+				logger.warn({ url: next }, 'ignoring unexpected pagination URL');
 				break;
 			}
 			nextUrl = next;
@@ -119,30 +121,26 @@ export async function fetchWCIF(id: string, skipCache = false): Promise<WCIFPubl
 	}
 
 	return withCoalesce(skipCache ? `wcif-fresh:${id}` : cacheKey, async () => {
-	const { data } = await wcaFetch<Record<string, unknown>>(
-		`${WCA_API_BASE}/competitions/${encodeURIComponent(id)}/wcif/public`
-	);
-	const persons = data.persons as Array<{ registration?: { status?: string } }> | undefined;
-	const competitorCount = persons
-		? persons.filter((p) => p.registration?.status === 'accepted').length
-		: 0;
+		const { data } = await wcaFetch<Record<string, unknown>>(
+			`${WCA_API_BASE}/competitions/${encodeURIComponent(id)}/wcif/public`
+		);
+		const persons = data.persons as Array<{ registration?: { status?: string } }> | undefined;
+		const competitorCount = persons
+			? persons.filter((p) => p.registration?.status === 'accepted').length
+			: 0;
 
-	const result: WCIFPublicData = {
-		id: data.id as string,
-		name: data.name as string,
-		competitorLimit: (data.competitorLimit as number | null) ?? null,
-		competitorCount,
-		registrationInfo: data.registrationInfo as WCIFPublicData['registrationInfo'],
-		schedule: data.schedule as WCIFPublicData['schedule']
-	};
+		const result: WCIFPublicData = {
+			id: data.id as string,
+			name: data.name as string,
+			competitorLimit: (data.competitorLimit as number | null) ?? null,
+			competitorCount,
+			registrationInfo: data.registrationInfo as WCIFPublicData['registrationInfo'],
+			schedule: data.schedule as WCIFPublicData['schedule']
+		};
 
-	setCache(cacheKey, result, TTL.WCIF);
-	return result;
+		setCache(cacheKey, result, TTL.WCIF);
+		return result;
 	});
-}
-
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -168,7 +166,7 @@ export async function fetchWCIFBatch(
 			if (result.status === 'fulfilled') {
 				results.set(chunk[j], result.value);
 			} else {
-				console.warn(`WCIF fetch failed for ${chunk[j]}:`, result.reason);
+				logger.warn({ competitionId: chunk[j], err: result.reason }, 'WCIF fetch failed');
 			}
 		}
 	}
@@ -188,9 +186,7 @@ export async function enrichCompetitions(
 
 	return competitions.map((comp) => {
 		const wcifData = wcifMap.get(comp.id);
-		const wcif: EnrichedWCIF | null = wcifData
-			? enrichWCIF(comp.cancelled_at, wcifData)
-			: null;
+		const wcif: EnrichedWCIF | null = wcifData ? enrichWCIF(comp.cancelled_at, wcifData) : null;
 		return { ...comp, wcif };
 	});
 }

@@ -1,4 +1,5 @@
 import type { FlightResult } from './types';
+import { logger } from '$lib/server/logger';
 
 // Hoisted regex constants for combineDateAndTime
 const TIME_12H_RE = /(\d{1,2}):(\d{2})\s*(AM|PM)/i;
@@ -17,7 +18,7 @@ export function parseFlightResponse(html: string): FlightResult[] {
 		const airlineMap = buildAirlineMap(payload);
 		return extractFlights(payload, airlineMap);
 	} catch (err) {
-		console.warn('Flight response parsing failed:', err);
+		logger.warn({ err }, 'flight response parsing failed');
 		return [];
 	}
 }
@@ -29,7 +30,7 @@ function extractPayload(html: string): unknown[] | null {
 	// Extract the script tag with class="ds:1" containing flight data
 	const scriptMatch = html.match(/<script[^>]+class="ds:1"[^>]*>([\s\S]*?)<\/script>/);
 	if (!scriptMatch) {
-		console.warn('Could not find script.ds:1 tag');
+		logger.warn('could not find script.ds:1 tag');
 		return null;
 	}
 
@@ -40,7 +41,7 @@ function extractPayload(html: string): unknown[] | null {
 	// We need to extract the data array
 	const dataIdx = scriptText.indexOf('data:');
 	if (dataIdx === -1) {
-		console.warn('Could not find "data:" in script content');
+		logger.warn('could not find "data:" in script content');
 		return null;
 	}
 
@@ -68,7 +69,7 @@ function extractPayload(html: string): unknown[] | null {
 	}
 
 	if (start === -1 || end === -1) {
-		console.warn('Could not bracket-match the data payload');
+		logger.warn('could not bracket-match the data payload');
 		return null;
 	}
 
@@ -77,7 +78,7 @@ function extractPayload(html: string): unknown[] | null {
 	try {
 		return JSON.parse(jsonStr) as unknown[];
 	} catch {
-		console.warn('Failed to parse data payload JSON');
+		logger.warn('failed to parse data payload JSON');
 		return null;
 	}
 }
@@ -88,24 +89,38 @@ type Payload = any;
 /**
  * Build a map of airline code → airline name from the payload metadata.
  *
- * Google Flights payload structure (reverse-engineered from fast-flights Python source):
- *   payload[3][0]       — flight results list
- *   payload[7][1][1]    — airline metadata array [[code, name], ...]
- *   k[1][0][1]          — price (integer, USD)
- *   k[0][1]             — airline IATA codes array
- *   k[0][2]             — flight segments array
- *   firstSeg[3]         — origin airport IATA
- *   lastSeg[6]          — destination airport IATA
- *   firstSeg[8]         — departure time string
- *   firstSeg[20]        — departure date string
- *   lastSeg[10]         — arrival time string
- *   lastSeg[21]         — arrival date string
- *   seg[11]             — segment duration in minutes
+ * Google Flights payload structure — reverse-engineered from the fast-flights Python project:
+ *   https://github.com/AWeirdDev/flights
+ *
+ * These indices mirror Google's internal response format and may break without warning
+ * if Google changes their payload structure. The named constants below (IDX_*) map each
+ * raw index to its semantic meaning so readers don't have to guess.
  */
+
+// --- Payload-level paths ---
+// Google returns flights in two lists: "Top departing flights" (best) and "Other departing flights".
+// Parse both or we miss the top-ranked (often cheapest) results.
+const IDX_BEST_FLIGHT_LIST = [2, 0] as const; // payload → "Top departing flights" array
+const IDX_OTHER_FLIGHT_LIST = [3, 0] as const; // payload → "Other departing flights" array
+const IDX_AIRLINE_META = [7, 1, 1] as const; // payload → [[code, name], ...]
+
+// --- Per-flight (k) paths ---
+const IDX_PRICE = [1, 0, 1] as const; // k → price (integer, USD)
+const IDX_AIRLINE_CODES = [0, 1] as const; // k → airline IATA code array
+const IDX_SEGMENTS = [0, 2] as const; // k → flight segments array
+
+// --- Per-segment indices ---
+const SEG_ORIGIN = 3; // segment → origin airport IATA
+const SEG_DESTINATION = 6; // segment → destination airport IATA
+const SEG_DEPART_TIME = 8; // segment → departure time string
+const SEG_ARRIVAL_TIME = 10; // segment → arrival time string
+const SEG_DURATION = 11; // segment → duration in minutes
+const SEG_DEPART_DATE = 20; // segment → departure date string
+const SEG_ARRIVAL_DATE = 21; // segment → arrival date string
 function buildAirlineMap(payload: Payload): Map<string, string> {
 	const map = new Map<string, string>();
 	try {
-		const airlines = payload[7]?.[1]?.[1]; // airline metadata map
+		const airlines = payload[IDX_AIRLINE_META[0]]?.[IDX_AIRLINE_META[1]]?.[IDX_AIRLINE_META[2]];
 		if (Array.isArray(airlines)) {
 			for (const entry of airlines) {
 				if (Array.isArray(entry) && entry.length >= 2) {
@@ -124,19 +139,28 @@ function buildAirlineMap(payload: Payload): Map<string, string> {
  */
 function extractFlights(payload: Payload, airlineMap: Map<string, string>): FlightResult[] {
 	const flights: FlightResult[] = [];
+	const seen = new Set<string>();
 
-	try {
-		const flightList = payload[3]?.[0]; // flight results list
-		if (!Array.isArray(flightList)) return [];
-
-		for (const k of flightList) {
+	const parseList = (list: unknown) => {
+		if (!Array.isArray(list)) return;
+		for (const k of list) {
 			try {
 				const flight = parseOneFlight(k, airlineMap);
-				if (flight) flights.push(flight);
+				if (!flight) continue;
+				// Dedup in case the same itinerary appears in both Best and Other lists
+				const key = `${flight.price}|${flight.airline}|${flight.departureTime}|${flight.arrivalTime}|${flight.origin}|${flight.destination}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				flights.push(flight);
 			} catch {
 				// Skip individual flights that fail to parse
 			}
 		}
+	};
+
+	try {
+		parseList(payload[IDX_BEST_FLIGHT_LIST[0]]?.[IDX_BEST_FLIGHT_LIST[1]]);
+		parseList(payload[IDX_OTHER_FLIGHT_LIST[0]]?.[IDX_OTHER_FLIGHT_LIST[1]]);
 	} catch {
 		// Flight list not available
 	}
@@ -148,34 +172,34 @@ function extractFlights(payload: Payload, airlineMap: Map<string, string>): Flig
  * Parse a single flight entry from the payload.
  */
 function parseOneFlight(k: Payload, airlineMap: Map<string, string>): FlightResult | null {
-	const price = k[1]?.[0]?.[1]; // price in USD
+	const price = k[IDX_PRICE[0]]?.[IDX_PRICE[1]]?.[IDX_PRICE[2]];
 	if (typeof price !== 'number' || price <= 0) return null;
 
-	const airlineCodes: string[] = k[0]?.[1] ?? []; // airline IATA codes
+	const airlineCodes: string[] = k[IDX_AIRLINE_CODES[0]]?.[IDX_AIRLINE_CODES[1]] ?? [];
 	const airlineName =
 		airlineCodes
 			.map((code: string) => airlineMap.get(code) ?? code)
 			.filter(Boolean)
 			.join(', ') || 'Unknown Airline';
 
-	const segments = k[0]?.[2]; // flight segments
+	const segments = k[IDX_SEGMENTS[0]]?.[IDX_SEGMENTS[1]];
 	if (!Array.isArray(segments) || segments.length === 0) return null;
 
 	const firstSeg = segments[0];
 	const lastSeg = segments[segments.length - 1];
 
-	const origin = String(firstSeg[3] ?? ''); // origin IATA
-	const destination = String(lastSeg[6] ?? ''); // destination IATA
+	const origin = String(firstSeg[SEG_ORIGIN] ?? '');
+	const destination = String(lastSeg[SEG_DESTINATION] ?? '');
 	if (!origin || !destination) return null;
 
-	const departTime = String(firstSeg[8] ?? ''); // departure time
-	const departDate = String(firstSeg[20] ?? ''); // departure date
-	const arrivalTime = String(lastSeg[10] ?? ''); // arrival time
-	const arrivalDate = String(lastSeg[21] ?? ''); // arrival date
+	const departTime = normalizeTime(firstSeg[SEG_DEPART_TIME]);
+	const departDate = normalizeDate(firstSeg[SEG_DEPART_DATE]);
+	const arrivalTime = normalizeTime(lastSeg[SEG_ARRIVAL_TIME]);
+	const arrivalDate = normalizeDate(lastSeg[SEG_ARRIVAL_DATE]);
 
 	let totalDuration = 0;
 	for (const seg of segments) {
-		const dur = seg[11]; // segment duration in minutes
+		const dur = seg[SEG_DURATION];
 		if (typeof dur === 'number') {
 			totalDuration += dur;
 		}
@@ -192,6 +216,36 @@ function parseOneFlight(k: Payload, airlineMap: Map<string, string>): FlightResu
 		origin,
 		destination
 	};
+}
+
+/**
+ * Normalize Google's per-segment date into "YYYY-MM-DD".
+ * Observed shapes: `[year, month, day]` for multi-stop itineraries,
+ * occasionally a pre-formatted string for simple ones.
+ */
+export function normalizeDate(raw: unknown): string {
+	if (Array.isArray(raw) && raw.length >= 3) {
+		const [y, m, d] = raw;
+		if (typeof y === 'number' && typeof m === 'number' && typeof d === 'number') {
+			return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+		}
+	}
+	return typeof raw === 'string' ? raw : '';
+}
+
+/**
+ * Normalize Google's per-segment time into "HH:MM".
+ * Observed shapes: `[hour, minute]` or `[hour]` when minutes are 0.
+ */
+export function normalizeTime(raw: unknown): string {
+	if (Array.isArray(raw) && raw.length >= 1) {
+		const h = raw[0];
+		const m = typeof raw[1] === 'number' ? raw[1] : 0;
+		if (typeof h === 'number') {
+			return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+		}
+	}
+	return typeof raw === 'string' ? raw : '';
 }
 
 /**

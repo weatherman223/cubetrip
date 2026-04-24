@@ -2,7 +2,10 @@ import protobuf from 'protobufjs/light';
 
 const { Type, Field, Enum, Root } = protobuf;
 
-// Build the protobuf schema programmatically to match fast-flights flights.proto
+// Build the protobuf schema programmatically to match fast-flights flights.proto.
+// Field numbers are reverse-engineered from Google's internal binary wire format.
+// Source: fast-flights Python project (github.com/AWeirdDev/flights).
+// Do NOT renumber fields — changing them silently breaks flight search.
 const root = new Root();
 
 // Airport message

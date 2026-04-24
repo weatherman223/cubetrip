@@ -50,7 +50,7 @@ describe('computeRegistrationStatus', () => {
 		expect(computeRegistrationStatus('2025-01-01T00:00:00Z', makeWcif())).toBe('closed');
 	});
 
-	it('returns closed before open window (no OTS)', () => {
+	it('returns not-open-yet before open window (no OTS)', () => {
 		vi.useFakeTimers({ now: new Date('2024-06-01T00:00:00Z') });
 		const wcif = makeWcif({
 			registrationInfo: {
@@ -60,10 +60,10 @@ describe('computeRegistrationStatus', () => {
 				onTheSpotRegistration: false
 			}
 		});
-		expect(computeRegistrationStatus(null, wcif)).toBe('closed');
+		expect(computeRegistrationStatus(null, wcif)).toBe('not-open-yet');
 	});
 
-	it('returns on-the-spot before open window when OTS is true', () => {
+	it('returns not-open-yet before open window even when OTS is true', () => {
 		vi.useFakeTimers({ now: new Date('2024-06-01T00:00:00Z') });
 		const wcif = makeWcif({
 			registrationInfo: {
@@ -73,7 +73,7 @@ describe('computeRegistrationStatus', () => {
 				onTheSpotRegistration: true
 			}
 		});
-		expect(computeRegistrationStatus(null, wcif)).toBe('on-the-spot');
+		expect(computeRegistrationStatus(null, wcif)).toBe('not-open-yet');
 	});
 
 	it('returns open when in window and under limit', () => {

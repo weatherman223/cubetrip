@@ -14,7 +14,7 @@
 
 {#if variant === 'loading'}
 	<div class="flex flex-col gap-4">
-		{#each { length: 3 } as _, i}
+		{#each { length: 3 } as _, i (i)}
 			<SkeletonCard delay={i * 120} />
 		{/each}
 		<p class="mt-2 text-center font-mono text-xs tracking-wider text-airline-slate-light uppercase">

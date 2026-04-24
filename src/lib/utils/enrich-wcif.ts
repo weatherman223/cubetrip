@@ -53,6 +53,7 @@ export function computeRegistrationStatus(
 		}
 		return 'open';
 	}
+	if (now < open) return 'not-open-yet';
 	if (wcif.registrationInfo.onTheSpotRegistration) return 'on-the-spot';
 	return 'closed';
 }

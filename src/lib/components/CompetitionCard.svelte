@@ -11,10 +11,13 @@
 		unit = 'miles',
 		cheapestFlight = null,
 		flightFetchedAt = null,
+		flightDaysBefore = null,
 		cheaperAltFlight = null,
 		flightFallbackUrl = null,
 		flightLoading = false,
+		flightDayProgress = null,
 		hasConflict = false,
+		nearestAirportIata = null,
 		dataFetchedAt = null,
 		onRefresh = null,
 		refreshStatus = null
@@ -25,13 +28,16 @@
 		unit?: string;
 		cheapestFlight?: FlightResult | null;
 		flightFetchedAt?: string | null;
+		flightDaysBefore?: number | null;
 		cheaperAltFlight?: FlightResult | null;
 		flightFallbackUrl?: string | null;
 		flightLoading?: boolean;
+		flightDayProgress?: { daysCompleted: number; totalDays: number } | null;
 		hasConflict?: boolean;
+		nearestAirportIata?: string | null;
 		dataFetchedAt?: string | null;
 		onRefresh?: ((compId: string) => void) | null;
-		refreshStatus?: 'wcif' | 'flights' | 'done' | null;
+		refreshStatus?: 'wcif' | 'flights' | 'done' | 'partial' | 'error' | null;
 	} = $props();
 
 	function timeAgo(isoDate: string): string {
@@ -119,6 +125,14 @@
 							</span>
 						{:else if refreshStatus === 'done'}
 							<span class="refresh-done font-mono text-[9px] text-airline-open">✓ UPDATED</span>
+						{:else if refreshStatus === 'partial'}
+							<span class="refresh-done font-mono text-[9px] text-airline-amber"
+								>⚠ PARTIALLY UPDATED</span
+							>
+						{:else if refreshStatus === 'error'}
+							<span class="refresh-done font-mono text-[9px] text-airline-cancelled"
+								>✗ UPDATE FAILED</span
+							>
 						{:else}
 							<button
 								onclick={() => onRefresh?.(competition.id)}
@@ -182,7 +196,7 @@
 			<div>
 				<p class="mb-1.5 font-mono text-[10px] tracking-widest text-slate-400 uppercase">EVENTS</p>
 				<div class="flex flex-wrap gap-1.5 text-lg text-slate-600">
-					{#each competition.event_ids as eventId}
+					{#each competition.event_ids as eventId (eventId)}
 						<EventIcon {eventId} />
 					{/each}
 				</div>
@@ -223,6 +237,13 @@
 							>
 								⚠ ARRIVES LATE
 							</span>
+						{:else if flightDaysBefore && flightDaysBefore > 1}
+							<span
+								class="mb-1 inline-block rounded-full bg-airline-sky/80 px-2 py-0.5 font-mono text-[8px] font-semibold tracking-wider text-white"
+								title="Outbound departs {flightDaysBefore} days before the competition so you arrive in time"
+							>
+								LEAVES {flightDaysBefore} DAYS BEFORE
+							</span>
 						{/if}
 						<p class="font-mono text-lg font-bold text-airline-amber">
 							${cheapestFlight.price}
@@ -230,6 +251,14 @@
 						<p class="font-mono text-[9px] font-semibold text-slate-500">
 							{cheapestFlight.origin} → {cheapestFlight.destination}
 						</p>
+						{#if nearestAirportIata}
+							<p
+								class="font-mono text-[8px] text-airline-amber-dark/70"
+								title="Nearest airport {nearestAirportIata} had no flights"
+							>
+								↗ REROUTED FROM {nearestAirportIata}
+							</p>
+						{/if}
 						<p class="text-[9px] text-slate-500">
 							{cheapestFlight.airline} · {cheapestFlight.stops === 0
 								? 'nonstop'
@@ -241,18 +270,28 @@
 							</p>
 						{/if}
 						{#if cheaperAltFlight}
+							{@const differentOrigin = cheaperAltFlight.origin !== cheapestFlight.origin}
+							{@const differentDest = cheaperAltFlight.destination !== cheapestFlight.destination}
 							<div class="mt-1.5 rounded border border-airline-open/20 bg-airline-open/5 px-2 py-1">
 								<p class="font-mono text-[9px] font-bold text-airline-open">
-									${cheaperAltFlight.price} via {cheaperAltFlight.destination}
+									${cheaperAltFlight.price} via {cheaperAltFlight.origin} → {cheaperAltFlight.destination}
 								</p>
-								<p class="text-[8px] text-slate-400">Cheaper but farther</p>
+								<p class="text-[8px] text-slate-400">
+									{#if differentOrigin && differentDest}
+										Cheaper from {cheaperAltFlight.origin}
+									{:else if differentOrigin}
+										Cheaper from {cheaperAltFlight.origin}
+									{:else}
+										Cheaper but farther
+									{/if}
+								</p>
 							</div>
 						{/if}
 						{#if flightFallbackUrl}
 							<a
 								href={flightFallbackUrl}
 								target="_blank"
-								rel="noopener noreferrer"
+								rel="noopener noreferrer external"
 								class="mt-1 inline-block font-mono text-[8px] tracking-wider text-airline-sky/60 underline-offset-2 transition-colors hover:text-airline-sky hover:underline"
 							>
 								VIEW ON GOOGLE FLIGHTS
@@ -264,6 +303,11 @@
 						<span class="fare-dot mr-1 inline-block h-1.5 w-1.5 rounded-full bg-airline-amber"
 						></span>
 						<p class="font-mono text-[9px] tracking-wider text-airline-amber/70">SEARCHING FARES</p>
+						{#if flightDayProgress && flightDayProgress.totalDays > 1}
+							<p class="mt-0.5 font-mono text-[8px] tracking-wider text-slate-400">
+								DAY {flightDayProgress.daysCompleted} OF {flightDayProgress.totalDays}
+							</p>
+						{/if}
 					</div>
 				{:else if !isDriveable && !cheapestFlight && flightFallbackUrl}
 					<div class="text-center">
@@ -271,7 +315,7 @@
 						<a
 							href={flightFallbackUrl}
 							target="_blank"
-							rel="noopener noreferrer"
+							rel="noopener noreferrer external"
 							class="font-mono text-[9px] tracking-wider text-airline-sky underline-offset-2 transition-colors hover:text-airline-sky-light hover:underline"
 						>
 							CHECK GOOGLE FLIGHTS →
@@ -282,7 +326,7 @@
 				<a
 					href={competition.url?.startsWith('https://') ? competition.url : '#'}
 					target="_blank"
-					rel="noopener noreferrer"
+					rel="noopener noreferrer external"
 					class="font-mono text-[10px] tracking-wider text-airline-sky underline-offset-2 transition-colors hover:text-airline-sky-light hover:underline"
 				>
 					VIEW DETAILS →

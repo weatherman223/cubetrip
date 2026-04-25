@@ -13,6 +13,7 @@
 		flightFetchedAt = null,
 		flightDaysBefore = null,
 		cheaperAltFlight = null,
+		cheaperFromAltFlight = null,
 		flightFallbackUrl = null,
 		flightLoading = false,
 		flightDayProgress = null,
@@ -30,6 +31,7 @@
 		flightFetchedAt?: string | null;
 		flightDaysBefore?: number | null;
 		cheaperAltFlight?: FlightResult | null;
+		cheaperFromAltFlight?: FlightResult | null;
 		flightFallbackUrl?: string | null;
 		flightLoading?: boolean;
 		flightDayProgress?: { daysCompleted: number; totalDays: number } | null;
@@ -269,22 +271,28 @@
 								Prices as of {timeAgo(flightFetchedAt)}
 							</p>
 						{/if}
+						{#if cheaperFromAltFlight}
+							<div
+								class="mt-1.5 rounded border border-airline-sky/30 bg-airline-sky/5 px-2 py-1"
+								title="Same destination, cheaper if you depart from {cheaperFromAltFlight.origin}"
+							>
+								<p class="font-mono text-[9px] font-bold text-airline-sky">
+									${cheaperFromAltFlight.price} via {cheaperFromAltFlight.origin} → {cheaperFromAltFlight.destination}
+								</p>
+								<p class="text-[8px] text-slate-400">
+									Cheaper from {cheaperFromAltFlight.origin}
+								</p>
+							</div>
+						{/if}
 						{#if cheaperAltFlight}
-							{@const differentOrigin = cheaperAltFlight.origin !== cheapestFlight.origin}
-							{@const differentDest = cheaperAltFlight.destination !== cheapestFlight.destination}
-							<div class="mt-1.5 rounded border border-airline-open/20 bg-airline-open/5 px-2 py-1">
+							<div
+								class="mt-1.5 rounded border border-airline-open/20 bg-airline-open/5 px-2 py-1"
+								title="Cheaper if you fly into {cheaperAltFlight.destination} instead"
+							>
 								<p class="font-mono text-[9px] font-bold text-airline-open">
 									${cheaperAltFlight.price} via {cheaperAltFlight.origin} → {cheaperAltFlight.destination}
 								</p>
-								<p class="text-[8px] text-slate-400">
-									{#if differentOrigin && differentDest}
-										Cheaper from {cheaperAltFlight.origin}
-									{:else if differentOrigin}
-										Cheaper from {cheaperAltFlight.origin}
-									{:else}
-										Cheaper but farther
-									{/if}
-								</p>
+								<p class="text-[8px] text-slate-400">Cheaper but farther</p>
 							</div>
 						{/if}
 						{#if flightFallbackUrl}

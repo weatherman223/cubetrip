@@ -93,4 +93,38 @@ describe('preferences migrations', () => {
 		expect(result.customField).toBe('keep-me');
 		expect(result.nested).toEqual({ a: 1 });
 	});
+
+	describe('v2 -> v3: maxDistanceKm + allowedCountries defaults', () => {
+		it('defaults maxDistanceKm to MAX_DISTANCE_KM (~half equator) when missing', () => {
+			const result = migratePrefs({ schemaVersion: 2 });
+			expect(result.maxDistanceKm).toBe(20037);
+		});
+
+		it('defaults allowedCountries to empty array when missing', () => {
+			const result = migratePrefs({ schemaVersion: 2 });
+			expect(result.allowedCountries).toEqual([]);
+		});
+
+		it('preserves a valid existing maxDistanceKm', () => {
+			const result = migratePrefs({ schemaVersion: 2, maxDistanceKm: 5000 });
+			expect(result.maxDistanceKm).toBe(5000);
+		});
+
+		it('preserves an existing allowedCountries array (even non-empty)', () => {
+			const result = migratePrefs({ schemaVersion: 2, allowedCountries: ['US', 'CA'] });
+			expect(result.allowedCountries).toEqual(['US', 'CA']);
+		});
+
+		it('replaces a non-array allowedCountries with []', () => {
+			const result = migratePrefs({ schemaVersion: 2, allowedCountries: 'US' });
+			expect(result.allowedCountries).toEqual([]);
+		});
+
+		it('replaces a zero/negative maxDistanceKm with the default', () => {
+			const r1 = migratePrefs({ schemaVersion: 2, maxDistanceKm: 0 });
+			expect(r1.maxDistanceKm).toBe(20037);
+			const r2 = migratePrefs({ schemaVersion: 2, maxDistanceKm: -100 });
+			expect(r2.maxDistanceKm).toBe(20037);
+		});
+	});
 });

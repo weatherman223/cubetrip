@@ -5,6 +5,8 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import { resolve } from '$app/paths';
 	import AirportAutocomplete from './AirportAutocomplete.svelte';
+	import DistanceLimitSlider from './DistanceLimitSlider.svelte';
+	import CountryFilter from './CountryFilter.svelte';
 	import { ALL_EVENT_IDS, EVENT_NAMES } from '$lib/utils/events';
 	import { findNearbyAirports } from '$lib/utils/airport-lookup';
 
@@ -23,6 +25,8 @@
 	let allowPartialDefault = $state(false);
 	let maxDaysBeforeComp = $state(3);
 	let skipClosedFlights = $state(true);
+	let maxDistanceKm = $state(20037);
+	let allowedCountries = $state<string[]>([]);
 
 	$effect(() => {
 		if (open) {
@@ -40,6 +44,8 @@
 			allowPartialDefault = p.allowPartialDefault;
 			maxDaysBeforeComp = p.maxDaysBeforeComp;
 			skipClosedFlights = p.skipClosedFlights;
+			maxDistanceKm = p.maxDistanceKm;
+			allowedCountries = [...p.allowedCountries];
 		}
 	});
 
@@ -90,7 +96,9 @@
 			defaultEvents: [...defaultEvents],
 			allowPartialDefault,
 			maxDaysBeforeComp: Math.max(1, Math.min(7, Math.round(maxDaysBeforeComp))),
-			skipClosedFlights
+			skipClosedFlights,
+			maxDistanceKm,
+			allowedCountries
 		});
 		onClose();
 	}
@@ -222,6 +230,18 @@
 							metros like NYC, LA, or the Bay Area.
 						</p>
 
+						<div
+							class="mb-2 flex items-start gap-2 rounded-md border border-airline-sky/30 bg-airline-sky/5 px-2 py-1.5"
+						>
+							<span class="font-mono text-[10px] text-airline-sky" aria-hidden="true">ⓘ</span>
+							<p class="font-mono text-[10px] leading-snug text-airline-slate-light">
+								<span class="font-semibold text-airline-sky">New —</span> your primary
+								<span class="font-bold text-airline-amber">{homeAirport}</span> always shows in the main
+								fare slot. Secondaries appear as "Cheaper from …" alternatives only when they undercut
+								it on the same route.
+							</p>
+						</div>
+
 						{#if additionalOrigins.length > 0}
 							<div class="mb-2 flex flex-wrap gap-1.5">
 								{#each additionalOrigins as origin (origin.iata)}
@@ -342,6 +362,23 @@
 						</button>
 					</div>
 				</div>
+				<!-- Travel Filters -->
+				<div class="space-y-4 rounded-lg border border-airline-slate/30 bg-airline-midnight/30 p-3">
+					<p class="font-mono text-[10px] tracking-widest text-airline-amber uppercase">
+						TRAVEL FILTERS
+					</p>
+					<DistanceLimitSlider
+						value={maxDistanceKm}
+						{unit}
+						homeAirportSet={homeAirport !== null}
+						onChange={(km) => (maxDistanceKm = km)}
+					/>
+					<CountryFilter
+						selected={allowedCountries}
+						onChange={(next) => (allowedCountries = next)}
+					/>
+				</div>
+
 				<!-- Default Event Filters -->
 				<div>
 					<p class="mb-1.5 font-mono text-[10px] tracking-widest text-airline-amber uppercase">

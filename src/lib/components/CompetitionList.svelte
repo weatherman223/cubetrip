@@ -63,6 +63,7 @@
 				flightFetchedAt={flightData?.primary?.fetchedAt ?? null}
 				flightDaysBefore={flightData?.primary?.daysBefore ?? null}
 				cheaperAltFlight={flightData?.cheaperAlt?.flight ?? null}
+				cheaperFromAltFlight={flightData?.cheaperFromAlt?.flight ?? null}
 				flightFallbackUrl={flightData?.fallbackUrl ?? null}
 				flightLoading={flightsLoading && !isDriveable && !flightData}
 				flightDayProgress={dayProgress}

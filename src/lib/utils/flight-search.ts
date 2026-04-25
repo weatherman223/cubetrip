@@ -63,22 +63,96 @@ export function isFlightLate(
 export const NO_INVENTORY = Symbol('no-inventory');
 export type FetchFlightResult = AirportFlight | typeof NO_INVENTORY | null;
 
+/**
+ * Per-route progress events for the live search feed. Emitted in order:
+ * one `start` immediately before each network call, followed by exactly one
+ * terminal event (`hit` | `empty` | `error`) once it resolves.
+ */
+export type RouteEvent =
+	| {
+			kind: 'start';
+			compId: string;
+			compName: string;
+			origin: string;
+			destination: string;
+			daysBefore: number;
+	  }
+	| {
+			kind: 'hit';
+			compId: string;
+			compName: string;
+			origin: string;
+			destination: string;
+			daysBefore: number;
+			price: number;
+	  }
+	| {
+			kind: 'empty';
+			compId: string;
+			compName: string;
+			origin: string;
+			destination: string;
+			daysBefore: number;
+	  }
+	| {
+			kind: 'error';
+			compId: string;
+			compName: string;
+			origin: string;
+			destination: string;
+			daysBefore: number;
+	  };
+
+export type OnRouteEvent = (e: RouteEvent) => void;
+
+interface RouteContext {
+	compId: string;
+	compName: string;
+}
+
 export async function fetchFlightForAirport(
 	homeAirport: string,
 	destIata: string,
 	departDate: string,
 	returnDate: string,
 	skipCache = false,
-	daysBefore = 1
+	daysBefore = 1,
+	onRouteEvent?: OnRouteEvent,
+	ctx?: RouteContext
 ): Promise<FetchFlightResult> {
+	// Distributive omit so the emitted variant carries its own discriminated fields
+	// (e.g. `price` for 'hit') — `Omit<Union, K>` collapses the union otherwise.
+	type EventBody = RouteEvent extends infer E
+		? E extends RouteEvent
+			? Omit<E, 'compId' | 'compName'>
+			: never
+		: never;
+	const emit = (e: EventBody) => {
+		if (!onRouteEvent || !ctx) return;
+		onRouteEvent({ ...e, compId: ctx.compId, compName: ctx.compName } as RouteEvent);
+	};
+	emit({ kind: 'start', origin: homeAirport, destination: destIata, daysBefore });
 	try {
 		const cacheParam = skipCache ? '&nocache=1' : '';
 		const res = await fetch(
 			`/api/flights?origin=${homeAirport}&destination=${destIata}&departDate=${departDate}&returnDate=${returnDate}${cacheParam}`
 		);
-		if (!res.ok) return null;
+		if (!res.ok) {
+			emit({ kind: 'error', origin: homeAirport, destination: destIata, daysBefore });
+			return null;
+		}
 		const data: FlightApiResponse = await res.json();
-		if (data.flights.length === 0) return NO_INVENTORY;
+		if (data.flights.length === 0) {
+			emit({ kind: 'empty', origin: homeAirport, destination: destIata, daysBefore });
+			return NO_INVENTORY;
+		}
+		emit({
+			kind: 'hit',
+			origin: homeAirport,
+			destination: destIata,
+			daysBefore,
+			price: data.flights[0].price
+		});
 		return {
 			flight: data.flights[0],
 			fetchedAt: data.fetchedAt,
@@ -86,6 +160,7 @@ export async function fetchFlightForAirport(
 			daysBefore
 		};
 	} catch {
+		emit({ kind: 'error', origin: homeAirport, destination: destIata, daysBefore });
 		return null;
 	}
 }
@@ -119,7 +194,9 @@ async function searchSingleDay(
 	// comp. We skip them before even issuing a request. Populated by this call
 	// too — every destination that returns NO_INVENTORY is added so later day
 	// iterations don't re-scrape it.
-	noInventory?: Set<string>
+	noInventory?: Set<string>,
+	onRouteEvent?: OnRouteEvent,
+	ctx?: RouteContext
 ): Promise<{ dayResult: DayResult | null; fallbackUrl: string | null }> {
 	let searched = 0;
 	const rawResults: AirportFlight[] = [];
@@ -141,7 +218,9 @@ async function searchSingleDay(
 					departDate,
 					returnDate,
 					skipCache,
-					daysBefore
+					daysBefore,
+					onRouteEvent,
+					ctx
 				)
 			)
 		);
@@ -207,10 +286,15 @@ export async function searchFlightsForComp(
 	homeAirports: string[],
 	maxDaysBeforeComp = MIN_DAYS_BEFORE,
 	skipCache = false,
-	onDayProgress?: (daysCompleted: number, totalDays: number) => void
+	onDayProgress?: (daysCompleted: number, totalDays: number) => void,
+	onRouteEvent?: OnRouteEvent
 ): Promise<CompFlightData> {
+	const ctx: RouteContext = {
+		compId: comp.id,
+		compName: comp.short_display_name || comp.short_name || comp.name
+	};
 	if (homeAirports.length === 0) {
-		return { primary: null, cheaperAlt: null, fallbackUrl: null };
+		return { primary: null, cheaperAlt: null, cheaperFromAlt: null, fallbackUrl: null };
 	}
 
 	const userMax = Math.max(
@@ -265,7 +349,9 @@ export async function searchFlightsForComp(
 				returnDate,
 				daysBefore,
 				skipCache,
-				cfg.noInventory
+				cfg.noInventory,
+				onRouteEvent,
+				ctx
 			);
 			recordFallback(fallbackUrl);
 			if (dayResult) thisDayResults.push({ ...dayResult, origin: cfg.origin });
@@ -273,15 +359,21 @@ export async function searchFlightsForComp(
 		allResults.push(...thisDayResults);
 
 		if (userMax === MIN_DAYS_BEFORE) {
-			// Mode A: stop as soon as any origin has an in-time flight on this day.
-			const anyInTime = thisDayResults.some(
-				(r) => !isFlightLate(r.primary.flight, comp, r.daysBefore)
+			// Mode A: stop as soon as the PRIMARY HOME has an in-time flight on this
+			// day. Checking only the primary (not "any origin") matters when a user
+			// has secondaries — without it, a secondary's in-time day-1 short-circuits
+			// the loop and the primary never gets a chance to widen, leaving us
+			// displaying a late primary or a non-primary in-time. Both are wrong:
+			// users picked their primary home for a reason, and the algorithm should
+			// give it the chance to find a non-late option before falling back.
+			const primaryInTime = thisDayResults.some(
+				(r) => r.origin === homeAirports[0] && !isFlightLate(r.primary.flight, comp, r.daysBefore)
 			);
-			if (anyInTime) break;
-			// Mode A day-1 guard: if no origin produced a result on day-1 (server
-			// error, empty scrape, failure cache), do NOT widen — otherwise a stale
-			// day-2 success cache would pop up as "LEAVES 2 DAYS BEFORE" even though
-			// the user has the slider at 1.
+			if (primaryInTime) break;
+			// Mode A day-1 guard: if NO origin produced any result on day-1 (server
+			// error, empty scrape, failure cache across the board), do NOT widen —
+			// otherwise a stale day-2 success cache would pop up as "LEAVES 2 DAYS
+			// BEFORE" even though the user has the slider at 1.
 			if (daysBefore === MIN_DAYS_BEFORE && thisDayResults.length === 0) break;
 		}
 
@@ -289,25 +381,58 @@ export async function searchFlightsForComp(
 	}
 
 	if (allResults.length === 0) {
-		return { primary: null, cheaperAlt: null, fallbackUrl: globalFallbackUrl };
+		return {
+			primary: null,
+			cheaperAlt: null,
+			cheaperFromAlt: null,
+			fallbackUrl: globalFallbackUrl
+		};
 	}
 
-	// Primary selection: cheapest in-time across all (day × origin) results. If
-	// none arrive in time, fall back to cheapest late (partial attendance). Mode A
-	// breaks on the first day with in-time results, so the in-time pool is all
-	// from the same daysBefore — picking cheapest among them honors mode A's
-	// "prefer the latest departure that arrives in time" rule too.
+	// Primary selection: ALWAYS prefer the user's PRIMARY home airport
+	// (homeAirports[0]) when it returned anything — even if a secondary is
+	// cheaper or arrives in-time when the primary doesn't. Users pick a primary
+	// home for reasons that aren't captured in price or arrival time alone
+	// (proximity, parking, baggage check-in, loyalty, the kid's nap schedule),
+	// and surfacing a "different airport" in the primary slot quietly overrides
+	// that preference. The allowPartial toggle in the comp list controls whether
+	// late primaries are hidden — that's the place to express "I'd rather miss
+	// the comp than fly out of PVU."
+	//
+	// Tiebreakers, in order:
+	//   1. Primary home, in-time → cheapest
+	//   2. Primary home, late → cheapest (still primary; allowPartial decides visibility)
+	//   3. Any origin, in-time → cheapest (only if primary returned nothing at all)
+	//   4. Any origin, late → cheapest (last resort)
+	// Mode A breaks on the first day with in-time results so the in-time pool is
+	// all from the same daysBefore — picking cheapest within a tier preserves
+	// mode A's "latest departure that still arrives in time" guarantee too.
+	const primaryHome = homeAirports[0];
 	const inTime = allResults.filter((r) => !isFlightLate(r.primary.flight, comp, r.daysBefore));
 	const byPrimaryPrice = (a: OriginDayResult, b: OriginDayResult) =>
 		a.primary.flight.price - b.primary.flight.price;
-	const pool = inTime.length > 0 ? inTime : allResults;
+	const fromPrimary = (pool: OriginDayResult[]) => pool.filter((r) => r.origin === primaryHome);
+
+	const primaryInTime = fromPrimary(inTime);
+	const primaryAny = fromPrimary(allResults);
+	const pool =
+		primaryInTime.length > 0
+			? primaryInTime
+			: primaryAny.length > 0
+				? primaryAny
+				: inTime.length > 0
+					? inTime
+					: allResults;
 	const chosen = [...pool].sort(byPrimaryPrice)[0];
 
-	// cheaperAlt selection: flatten every other (origin, destination) combination
-	// we have data for — other origins' primaries, and each day's within-chunk
-	// cheaperAlt — and pick the cheapest that's cheaper than primary AND differs
-	// by either origin or destination. This is the key multi-origin surfacing:
-	// "$280 via EWR" appears alongside "$410 via JFK" even though both are NYC.
+	// Two purpose-built alt slots, each surfacing a different shopping decision.
+	// Both flatten the same candidate pool (every primary + every cheaperAlt
+	// across day×origin results), then filter on disjoint criteria:
+	//   - cheaperAlt: different DESTINATION → "fly into a smaller nearby airport"
+	//   - cheaperFromAlt: same destination, different ORIGIN → "depart from your
+	//     secondary home". Origin differing from chosen primary is equivalent to
+	//     "from a secondary" because chosen primary is anchored on homeAirports[0]
+	//     whenever the primary home returned anything.
 	const primaryOrigin = chosen.primary.flight.origin;
 	const primaryDest = chosen.primary.flight.destination;
 	const altCandidates: AirportFlight[] = [];
@@ -320,7 +445,17 @@ export async function searchFlightsForComp(
 			.filter(
 				(f) =>
 					f !== chosen.primary &&
-					(f.flight.origin !== primaryOrigin || f.flight.destination !== primaryDest) &&
+					f.flight.destination !== primaryDest &&
+					f.flight.price < chosen.primary.flight.price
+			)
+			.sort((a, b) => a.flight.price - b.flight.price)[0] ?? null;
+	const cheaperFromAlt =
+		altCandidates
+			.filter(
+				(f) =>
+					f !== chosen.primary &&
+					f.flight.destination === primaryDest &&
+					f.flight.origin !== primaryOrigin &&
 					f.flight.price < chosen.primary.flight.price
 			)
 			.sort((a, b) => a.flight.price - b.flight.price)[0] ?? null;
@@ -328,6 +463,7 @@ export async function searchFlightsForComp(
 	return {
 		primary: chosen.primary,
 		cheaperAlt,
+		cheaperFromAlt,
 		fallbackUrl: chosen.primary.fallbackUrl ?? globalFallbackUrl,
 		nearestAirportIata: chosen.nearestAirportIata
 	};
@@ -341,7 +477,8 @@ export async function fetchFlightsForCompetitions(
 	onUpdate: (flights: Map<string, CompFlightData>) => void,
 	maxDaysBeforeComp = MIN_DAYS_BEFORE,
 	onDayProgress?: (compId: string, daysCompleted: number, totalDays: number) => void,
-	skipClosed = false
+	skipClosed = false,
+	onRouteEvent?: OnRouteEvent
 ): Promise<Map<string, CompFlightData>> {
 	const nonDriveable = comps.filter((c) => {
 		const dist = distances.get(c.id);
@@ -368,7 +505,8 @@ export async function fetchFlightsForCompetitions(
 					homeAirports,
 					maxDaysBeforeComp,
 					false,
-					onDayProgress ? (done, total) => onDayProgress(comp.id, done, total) : undefined
+					onDayProgress ? (done, total) => onDayProgress(comp.id, done, total) : undefined,
+					onRouteEvent
 				);
 				newFlights.set(comp.id, result);
 				onUpdate(new Map(newFlights));

@@ -2,7 +2,7 @@
 
 A web app for speedcubers to find WCA competitions they can spontaneously travel to. Pick a date range, see open competitions worldwide, and compare flight costs or driving distances.
 
-> **Beta 0.1.0** — there is no hosted instance right now. To try it, clone and run locally with the quick-start below. See [Beta / Known Limitations](#beta--known-limitations) before reporting bugs.
+> **Beta 0.2.0** — there is no hosted instance right now. To try it, clone and run locally with the quick-start below. See [CHANGELOG.md](CHANGELOG.md) for what's new and [Beta / Known Limitations](#beta--known-limitations) before reporting bugs.
 
 ## Quick Start (Beta Testers)
 
@@ -28,6 +28,18 @@ Preferences (gear icon / `⚙ SETTINGS`): driving radius, distance units, defaul
 
 To develop without hitting Google, set `USE_MOCK_FLIGHTS=true` in `.env`.
 
+### Updating to a new version
+
+If you've already cloned the repo, pull the latest from inside the `cubetrip` directory:
+
+```sh
+git pull
+npm install
+npm run dev
+```
+
+Your saved preferences (home airport, filters, etc.) live in your browser's `localStorage` and survive updates — schema migrations run automatically on next page load. The SQLite flight cache in `./data/` is also preserved; nothing to clean out manually.
+
 Bug reports and feedback: open a GitHub issue on this repo with the comp ID, home airport, date range, and what you expected vs. saw.
 
 ## Features
@@ -51,7 +63,7 @@ This is an early beta. A few rough edges to be aware of:
 - **Google Flights scraping is fragile.** The parser reverse-engineers Google's HTML and breaks when Google changes their markup. A recent parser regression around multi-stop long-haul itineraries was caught and fixed; similar regressions may recur.
 - **First cold search of a busy weekend takes 2-3 minutes.** The server queue (10 concurrent scrapes @ 150ms spacing) is the bottleneck, not the code. Subsequent searches hit the 12-hour success cache and are near-instant.
 - **Running a publicly shared instance risks Google rate-limiting the IP.** For reliable use, run locally or behind trusted users. If you see sustained 429s in the logs, the circuit breaker in `src/lib/server/flights/request-queue.ts` kicks in automatically.
-- **WCIF can be slow or missing.** 
+- **WCIF can be slow or missing.**
 - **No authentication.** User preferences live entirely in `localStorage`. Sharing a browser profile shares preferences.
 
 ## Prerequisites

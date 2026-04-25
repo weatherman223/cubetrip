@@ -31,7 +31,23 @@ export interface UserPreferences {
 	 * request queue focused on actionable comps. Default on.
 	 */
 	skipClosedFlights: boolean;
+	/**
+	 * Maximum travel distance in km. Stored in km regardless of `unit` so toggling
+	 * between miles/km doesn't silently shift the filter. The cap MAX_DISTANCE_KM
+	 * (~half the equator) is treated as "no limit" — comps further than that
+	 * physically don't exist on Earth.
+	 */
+	maxDistanceKm: number;
+	/**
+	 * Allowlist of country ISO 3166-1 alpha-2 codes. Empty array means no filter
+	 * (show all countries). Non-empty means only competitions in these countries
+	 * are shown.
+	 */
+	allowedCountries: string[];
 }
+
+/** Half the equator in km — used as the "no limit" sentinel for maxDistanceKm. */
+export const MAX_DISTANCE_KM = 20037;
 
 const defaults: UserPreferences = {
 	homeAirport: null,
@@ -43,7 +59,9 @@ const defaults: UserPreferences = {
 	defaultEvents: [],
 	allowPartialDefault: false,
 	maxDaysBeforeComp: 3,
-	skipClosedFlights: true
+	skipClosedFlights: true,
+	maxDistanceKm: MAX_DISTANCE_KM,
+	allowedCountries: []
 };
 
 function load(): UserPreferences {

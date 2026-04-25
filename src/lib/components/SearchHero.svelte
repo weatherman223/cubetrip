@@ -1,5 +1,7 @@
 <script lang="ts">
 	import AirportAutocomplete from './AirportAutocomplete.svelte';
+	import DistanceLimitSlider from './DistanceLimitSlider.svelte';
+	import CountryFilter from './CountryFilter.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { findNearbyAirports } from '$lib/utils/airport-lookup';
 	import type { Airport } from '$lib/types';
@@ -24,6 +26,10 @@
 	let addOriginKey = $state(0);
 	// Collapsed by default once the user has picked at least one — keeps the hero tight.
 	let showAdd = $state(false);
+
+	// Travel filters (distance limit + country/continent allowlist) live in their
+	// own collapsible section so the hero stays compact for users who don't need them.
+	let showTravelFilters = $state(false);
 
 	function selectWeekend(weeksAhead: number) {
 		const wk = getWeekend(weeksAhead);
@@ -74,6 +80,22 @@
 			onSearch(start, end);
 		}
 	}
+
+	// Heads-up shown when the search is likely to take a while: 3+ origins multiply
+	// the per-comp probe count, and a 3+ week date range pulls many more comps. Either
+	// alone is noticeable; both together really stack up. Pure derivation, no toggle.
+	const totalOrigins = $derived((homeAirport ? 1 : 0) + additionalOrigins.length);
+	const rangeWeeks = $derived.by(() => {
+		if (!start || !end || end < start) return 0;
+		const ms = new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime();
+		return ms / (7 * 24 * 60 * 60 * 1000);
+	});
+	const slowReasons = $derived.by(() => {
+		const reasons: string[] = [];
+		if (totalOrigins >= 3) reasons.push(`${totalOrigins} origin airports`);
+		if (rangeWeeks >= 3) reasons.push(`a ${Math.round(rangeWeeks)}-week range`);
+		return reasons;
+	});
 </script>
 
 <div
@@ -149,6 +171,18 @@
 						<span class="font-mono text-[9px] text-slate-500">
 							Multi-airport metro? Add nearby origins.
 						</span>
+					</div>
+
+					<div
+						class="mb-2 flex items-start gap-2 rounded-md border border-airline-sky/30 bg-airline-sky/5 px-2 py-1.5"
+					>
+						<span class="font-mono text-[10px] text-airline-sky" aria-hidden="true">ⓘ</span>
+						<p class="font-mono text-[10px] leading-snug text-airline-slate-light">
+							<span class="font-semibold text-airline-sky">New —</span> your primary
+							<span class="font-bold text-airline-amber">{homeAirport}</span> always shows in the main
+							fare slot. Secondaries appear as "Cheaper from …" alternatives only when they undercut it
+							on the same route.
+						</p>
 					</div>
 
 					{#if additionalOrigins.length > 0}
@@ -254,6 +288,49 @@
 					/>
 				</div>
 			</div>
+
+			<!-- Travel filters (collapsible) -->
+			<div class="mb-5">
+				<button
+					type="button"
+					onclick={() => (showTravelFilters = !showTravelFilters)}
+					aria-expanded={showTravelFilters}
+					class="flex w-full cursor-pointer items-center justify-between rounded-lg border border-airline-slate/40 bg-airline-midnight/60 px-3 py-2 font-mono text-[10px] tracking-widest text-airline-slate-light uppercase transition-colors hover:border-airline-amber/50 hover:text-airline-amber"
+				>
+					<span>TRAVEL FILTERS</span>
+					<span class="text-xs">{showTravelFilters ? '−' : '+'}</span>
+				</button>
+				{#if showTravelFilters}
+					<div
+						class="mt-3 space-y-4 rounded-lg border border-airline-slate/30 bg-airline-midnight/40 p-3"
+					>
+						<DistanceLimitSlider
+							value={preferences.current.maxDistanceKm}
+							unit={preferences.current.unit}
+							homeAirportSet={homeAirport !== null}
+							onChange={(km) => preferences.update({ maxDistanceKm: km })}
+						/>
+						<CountryFilter
+							selected={preferences.current.allowedCountries}
+							onChange={(next) => preferences.update({ allowedCountries: next })}
+						/>
+					</div>
+				{/if}
+			</div>
+
+			{#if slowReasons.length > 0}
+				<div
+					class="mb-3 flex items-start gap-2 rounded-lg border border-airline-amber/30 bg-airline-amber/5 px-3 py-2"
+					role="status"
+				>
+					<span class="font-mono text-xs text-airline-amber" aria-hidden="true">⏱</span>
+					<p class="font-mono text-[10px] leading-snug text-airline-slate-light">
+						<span class="text-airline-amber">Heads up —</span> searching with {slowReasons.join(
+							' and '
+						)} can take a few minutes to load.
+					</p>
+				</div>
+			{/if}
 
 			<!-- Search button -->
 			<button

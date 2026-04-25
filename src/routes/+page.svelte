@@ -5,7 +5,8 @@
 	import {
 		fetchFlightsForCompetitions,
 		searchFlightsForComp,
-		isFlightLate
+		isFlightLate,
+		type RouteEvent
 	} from '$lib/utils/flight-search';
 	import { enrichWCIF } from '$lib/utils/enrich-wcif';
 	import DateRangePicker from '$lib/components/DateRangePicker.svelte';
@@ -17,8 +18,12 @@
 	import SearchHero from '$lib/components/SearchHero.svelte';
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
 	import LoadingProgress from '$lib/components/LoadingProgress.svelte';
-	import { preferences } from '$lib/stores/preferences.svelte';
+	import FlightSearchFeed from '$lib/components/FlightSearchFeed.svelte';
+	import DistanceLimitSlider from '$lib/components/DistanceLimitSlider.svelte';
+	import CountryFilter from '$lib/components/CountryFilter.svelte';
+	import { preferences, MAX_DISTANCE_KM } from '$lib/stores/preferences.svelte';
 	import { haversine, haversineMiles } from '$lib/utils/distance';
+	import { applyLocationFilters } from '$lib/utils/competition-filters';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 
 	import { toYMD } from '$lib/utils/dates';
@@ -49,6 +54,8 @@
 		urlState.partial !== null ? urlState.partial === '1' : preferences.current.allowPartialDefault
 	);
 	let showPreferences = $state(false);
+	let showLocationPopover = $state(false);
+	let locationPopoverEl = $state<HTMLDivElement | undefined>(undefined);
 	let viewMode = $state<'list' | 'map'>(urlState.view === 'map' ? 'map' : 'list');
 	let sortBy = $state<'cost' | 'distance' | 'date' | 'name'>(urlState.sort ?? 'date');
 	let selectedEvents = urlState.events
@@ -57,6 +64,12 @@
 	let flights = new SvelteMap<string, CompFlightData>();
 	let flightDayProgress = new SvelteMap<string, { daysCompleted: number; totalDays: number }>();
 	let flightsLoading = $state(false);
+	// Rolling buffer of route-level search events for the live FlightSearchFeed.
+	// Capped at FEED_BUFFER so we don't grow unbounded across a weekend's worth
+	// of probes. Newest pushed at the end; the feed displays the tail.
+	const FEED_BUFFER = 60;
+	let routeEvents = $state<Array<{ id: number; event: RouteEvent }>>([]);
+	let routeEventCounter = 0;
 	let frozenCostOrder = $state<Map<string, number> | null>(null);
 	let dataFetchedAt: string | null = $state(null);
 	let refreshStatuses = new SvelteMap<string, 'wcif' | 'flights' | 'done' | 'partial' | 'error'>();
@@ -185,10 +198,15 @@
 	$effect(() => {
 		const prefs = preferences.current;
 		const additionalIatas = prefs.additionalHomeAirports.map((a) => a.iata).join(',');
-		const key = `${competitions.map((c) => c.id).join(',')}:${prefs.homeAirport}:${additionalIatas}:${prefs.maxDaysBeforeComp}:${prefs.skipClosedFlights}`;
+		// Scope flight search to comps the user can actually see — country/distance
+		// filters fully exclude comps from the UI, so probing flights for them
+		// (e.g. COS → Bogotá when the user picked North America only) wastes the
+		// queue and pollutes the live search feed.
+		const searchPool = locationFilteredCompetitions;
+		const key = `${searchPool.map((c) => c.id).join(',')}:${prefs.homeAirport}:${additionalIatas}:${prefs.maxDaysBeforeComp}:${prefs.skipClosedFlights}`;
 		if (
 			key !== flightFetchKey &&
-			competitions.length > 0 &&
+			searchPool.length > 0 &&
 			prefs.homeAirport &&
 			!wcifRetriesInFlight
 		) {
@@ -198,16 +216,17 @@
 			if (sortBy === 'cost') {
 				// eslint-disable-next-line svelte/prefer-svelte-reactivity -- built fully, assigned once, never mutated after
 				const order = new Map<string, number>();
-				const sorted = [...competitions].sort((a, b) => getTravelCost(a) - getTravelCost(b));
+				const sorted = [...searchPool].sort((a, b) => getTravelCost(a) - getTravelCost(b));
 				sorted.forEach((c, i) => order.set(c.id, i));
 				frozenCostOrder = order;
 			}
 
 			flightsLoading = true;
 			flightDayProgress.clear();
+			routeEvents = [];
 			const homeAirports = [prefs.homeAirport, ...prefs.additionalHomeAirports.map((a) => a.iata)];
 			fetchFlightsForCompetitions(
-				competitions,
+				searchPool,
 				homeAirports,
 				distances,
 				prefs.driveableRadius,
@@ -223,20 +242,41 @@
 						flightDayProgress.set(compId, { daysCompleted, totalDays });
 					}
 				},
-				prefs.skipClosedFlights
+				prefs.skipClosedFlights,
+				(event) => {
+					if (gen !== flightGeneration) return;
+					const next = routeEvents.slice(-FEED_BUFFER + 1);
+					next.push({ id: ++routeEventCounter, event });
+					routeEvents = next;
+				}
 			).then(() => {
 				if (gen === flightGeneration) {
 					flightsLoading = false;
 					frozenCostOrder = null;
 					flightDayProgress.clear();
+					routeEvents = [];
 				}
 			});
 		}
 	});
 
+	// Permanent location filters (max distance + country allowlist) — applied
+	// FIRST because they fully exclude comps from the user's view, before any
+	// toggleable closed/event filters. Reused by closedCount so the +N badge
+	// only counts closed comps that would actually be shown if toggled on.
+	const locationFilteredCompetitions = $derived.by(() => {
+		const prefs = preferences.current;
+		return applyLocationFilters(competitions, distances, {
+			maxDistanceKm: prefs.maxDistanceKm,
+			allowedCountries: prefs.allowedCountries,
+			homeLatitude: prefs.homeLatitude,
+			unit: prefs.unit
+		});
+	});
+
 	// Filter + sort
 	const filteredCompetitions = $derived.by(() => {
-		let result = competitions;
+		let result: typeof competitions = locationFilteredCompetitions;
 
 		if (!showClosed) {
 			result = result.filter(
@@ -292,8 +332,50 @@
 	});
 
 	const closedCount = $derived(
-		competitions.filter((c) => c.wcif?.registrationStatus === 'closed').length
+		locationFilteredCompetitions.filter((c) => c.wcif?.registrationStatus === 'closed').length
 	);
+
+	// Summary label for the post-search travel-filters trigger button.
+	// "ALL DESTINATIONS" when nothing's filtered; otherwise concatenate active segments.
+	const locationFilterSummary = $derived.by(() => {
+		const prefs = preferences.current;
+		const segments: string[] = [];
+		if (prefs.maxDistanceKm < MAX_DISTANCE_KM && prefs.homeLatitude !== null) {
+			const display = prefs.unit === 'km' ? prefs.maxDistanceKm : prefs.maxDistanceKm / 1.60934;
+			segments.push(`WITHIN ${Math.round(display).toLocaleString()} ${prefs.unit}`);
+		}
+		if (prefs.allowedCountries.length > 0) {
+			segments.push(
+				`${prefs.allowedCountries.length} COUNTR${prefs.allowedCountries.length === 1 ? 'Y' : 'IES'}`
+			);
+		}
+		return segments.length === 0 ? 'ALL DESTINATIONS' : segments.join(' · ');
+	});
+
+	const locationFiltersActive = $derived(
+		preferences.current.allowedCountries.length > 0 ||
+			(preferences.current.maxDistanceKm < MAX_DISTANCE_KM &&
+				preferences.current.homeLatitude !== null)
+	);
+
+	// Close the travel-filters popover on outside click or Escape.
+	$effect(() => {
+		if (!showLocationPopover) return;
+		function onDocClick(e: MouseEvent) {
+			if (locationPopoverEl && !locationPopoverEl.contains(e.target as Node)) {
+				showLocationPopover = false;
+			}
+		}
+		function onKey(e: KeyboardEvent) {
+			if (e.key === 'Escape') showLocationPopover = false;
+		}
+		document.addEventListener('mousedown', onDocClick);
+		document.addEventListener('keydown', onKey);
+		return () => {
+			document.removeEventListener('mousedown', onDocClick);
+			document.removeEventListener('keydown', onKey);
+		};
+	});
 
 	// Progress counters for the sticky strip. Both streams already push updates via
 	// existing callbacks (retryUnknownComps → competitions reassignment, fetchFlights
@@ -301,7 +383,7 @@
 	const wcifLoaded = $derived(competitions.filter((c) => c.wcif !== null).length);
 	const wcifTotal = $derived(competitions.length);
 	const nonDriveableCount = $derived(
-		competitions.filter((c) => {
+		locationFilteredCompetitions.filter((c) => {
 			const dist = distances.get(c.id);
 			return dist === undefined || dist > preferences.current.driveableRadius;
 		}).length
@@ -487,7 +569,7 @@
 			<EventFilter {selectedEvents} onToggle={toggleEvent} />
 
 			<!-- Filter toggle bar -->
-			<div class="flex items-center justify-between">
+			<div class="flex flex-wrap items-center justify-between gap-y-2">
 				<label class="group flex cursor-pointer items-center gap-2.5">
 					<div class="toggle-track relative">
 						<input type="checkbox" bind:checked={showClosed} class="peer sr-only" />
@@ -501,7 +583,7 @@
 					<span
 						class="font-mono text-[10px] tracking-widest text-airline-slate-light uppercase transition-colors group-hover:text-white"
 					>
-						SHOW ALL DEPARTURES
+						SHOW FULL/CLOSED COMPETITIONS
 					</span>
 					{#if closedCount > 0 && !showClosed}
 						<span
@@ -512,6 +594,39 @@
 					{/if}
 				</label>
 				<div class="flex flex-wrap items-center gap-3">
+					<!-- Travel filters trigger + popover -->
+					<div class="relative" bind:this={locationPopoverEl}>
+						<button
+							type="button"
+							onclick={() => (showLocationPopover = !showLocationPopover)}
+							aria-haspopup="dialog"
+							aria-expanded={showLocationPopover}
+							class="cursor-pointer rounded-full border px-3 py-1 font-mono text-[10px] tracking-widest uppercase transition-colors
+								{locationFiltersActive
+								? 'border-airline-amber bg-airline-amber/10 text-airline-amber hover:bg-airline-amber/20'
+								: 'border-airline-slate/40 text-airline-slate-light hover:border-airline-slate-light hover:text-white'}"
+						>
+							{locationFilterSummary}
+						</button>
+						{#if showLocationPopover}
+							<div
+								role="dialog"
+								aria-label="Travel filters"
+								class="absolute top-full right-0 z-40 mt-2 w-[min(22rem,calc(100vw-2rem))] space-y-4 rounded-xl border border-airline-slate/50 bg-airline-navy p-4 shadow-2xl shadow-black/50"
+							>
+								<DistanceLimitSlider
+									value={preferences.current.maxDistanceKm}
+									unit={preferences.current.unit}
+									homeAirportSet={preferences.current.homeAirport !== null}
+									onChange={(km) => preferences.update({ maxDistanceKm: km })}
+								/>
+								<CountryFilter
+									selected={preferences.current.allowedCountries}
+									onChange={(next) => preferences.update({ allowedCountries: next })}
+								/>
+							</div>
+						{/if}
+					</div>
 					<label class="group flex cursor-pointer items-center gap-2">
 						<div class="toggle-track relative">
 							<input type="checkbox" bind:checked={allowPartial} class="peer sr-only" />
@@ -545,6 +660,7 @@
 					total={nonDriveableCount}
 					subtitle={flightModeSubtitle}
 				/>
+				<FlightSearchFeed events={routeEvents} />
 			{/if}
 
 			<!-- Sort + view toggle row -->

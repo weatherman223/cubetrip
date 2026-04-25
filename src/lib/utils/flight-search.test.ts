@@ -300,6 +300,121 @@ describe('fetchFlightForAirport', () => {
 		const result = await fetchFlightForAirport('DEN', 'LAX', '2025-08-14', '2025-08-17');
 		expect(result).toBeNull();
 	});
+
+	describe('onRouteEvent', () => {
+		const ctx = { compId: 'TestComp2025', compName: 'Test Comp' };
+
+		it('emits start then hit (with price) for a successful fetch', async () => {
+			const flight = makeFlightResult({ origin: 'DEN', destination: 'LAX', price: 199 });
+			global.fetch = vi.fn().mockResolvedValue(makeFetchResponse([flight]));
+
+			const events: string[] = [];
+			await fetchFlightForAirport(
+				'DEN',
+				'LAX',
+				'2025-08-14',
+				'2025-08-17',
+				false,
+				1,
+				(e) => {
+					if (e.kind === 'hit') events.push(`${e.kind}:${e.price}`);
+					else events.push(e.kind);
+				},
+				ctx
+			);
+
+			expect(events).toEqual(['start', 'hit:199']);
+		});
+
+		it('emits start then empty when API returns zero flights', async () => {
+			global.fetch = vi.fn().mockResolvedValue(makeFetchResponse([]));
+
+			const events: string[] = [];
+			await fetchFlightForAirport(
+				'DEN',
+				'LAX',
+				'2025-08-14',
+				'2025-08-17',
+				false,
+				1,
+				(e) => events.push(e.kind),
+				ctx
+			);
+
+			expect(events).toEqual(['start', 'empty']);
+		});
+
+		it('emits start then error on HTTP failure', async () => {
+			global.fetch = vi.fn().mockResolvedValue({ ok: false } as Response);
+
+			const events: string[] = [];
+			await fetchFlightForAirport(
+				'DEN',
+				'LAX',
+				'2025-08-14',
+				'2025-08-17',
+				false,
+				1,
+				(e) => events.push(e.kind),
+				ctx
+			);
+
+			expect(events).toEqual(['start', 'error']);
+		});
+
+		it('emits start then error when fetch throws', async () => {
+			global.fetch = vi.fn().mockRejectedValue(new Error('boom'));
+
+			const events: string[] = [];
+			await fetchFlightForAirport(
+				'DEN',
+				'LAX',
+				'2025-08-14',
+				'2025-08-17',
+				false,
+				1,
+				(e) => events.push(e.kind),
+				ctx
+			);
+
+			expect(events).toEqual(['start', 'error']);
+		});
+
+		it('every emitted event carries route context (compId, compName, route, daysBefore)', async () => {
+			const flight = makeFlightResult({ origin: 'DEN', destination: 'LAX', price: 199 });
+			global.fetch = vi.fn().mockResolvedValue(makeFetchResponse([flight]));
+
+			const captured: Array<Record<string, unknown>> = [];
+			await fetchFlightForAirport(
+				'DEN',
+				'LAX',
+				'2025-08-14',
+				'2025-08-17',
+				false,
+				3,
+				(e) => captured.push(e as unknown as Record<string, unknown>),
+				ctx
+			);
+
+			expect(captured).toHaveLength(2);
+			for (const e of captured) {
+				expect(e.compId).toBe('TestComp2025');
+				expect(e.compName).toBe('Test Comp');
+				expect(e.origin).toBe('DEN');
+				expect(e.destination).toBe('LAX');
+				expect(e.daysBefore).toBe(3);
+			}
+		});
+
+		it('does nothing when no callback is provided', async () => {
+			const flight = makeFlightResult({ origin: 'DEN', destination: 'LAX', price: 199 });
+			global.fetch = vi.fn().mockResolvedValue(makeFetchResponse([flight]));
+
+			// Just confirm no throw and result is unchanged.
+			const result = await fetchFlightForAirport('DEN', 'LAX', '2025-08-14', '2025-08-17');
+			expect(result).not.toBeNull();
+		});
+	});
 });
 
 describe('searchFlightsForComp', () => {
@@ -762,6 +877,48 @@ describe('searchFlightsForComp — multi-day', () => {
 		expect(queriedDates.has('2026-05-28')).toBe(true);
 	});
 
+	it('Case G2: max=1 widens for primary even when secondary already has in-time on day-1', async () => {
+		// Two origins: JFK (primary, day-1 late, day-2 in-time) and EWR (secondary,
+		// day-1 in-time). Old behavior would break on EWR's in-time day-1 and
+		// display EWR or late-JFK as primary. New behavior keeps widening until JFK
+		// itself goes in-time so the primary slot stays on the user's home airport.
+		const queriedDates = new Set<string>();
+		global.fetch = vi.fn().mockImplementation((url: string) => {
+			const parsed = new URL(url, 'http://localhost');
+			const origin = parsed.searchParams.get('origin')!;
+			const destination = parsed.searchParams.get('destination')!;
+			const departDate = parsed.searchParams.get('departDate')!;
+			queriedDates.add(`${origin}:${departDate}`);
+			let arrivalTime: string;
+			if (origin === 'JFK' && departDate === '2026-05-29') {
+				arrivalTime = '2026-05-30T15:00:00'; // late
+			} else {
+				arrivalTime = `${departDate}T22:00:00`; // in-time (depart-day evening)
+			}
+			const flight = makeFlightResult({
+				origin,
+				destination,
+				price: origin === 'JFK' ? 400 : 250,
+				arrivalTime
+			});
+			return Promise.resolve(makeFetchResponse([flight]));
+		});
+		const comp = makeEnrichedCompetition({
+			latitude_degrees: 45.6,
+			longitude_degrees: 12.2,
+			start_date: '2026-05-30',
+			end_date: '2026-05-31'
+		});
+
+		const result = await searchFlightsForComp(comp, ['JFK', 'EWR'], 1);
+
+		expect(result.primary).not.toBeNull();
+		expect(result.primary!.flight.origin).toBe('JFK'); // primary home wins
+		expect(result.primary!.daysBefore).toBe(2); // widened past day-1 to find in-time JFK
+		// Sanity: we did query day-2 for JFK
+		expect(queriedDates.has('JFK:2026-05-28')).toBe(true);
+	});
+
 	it('onDayProgress fires once per day in order (mode B only)', async () => {
 		global.fetch = vi.fn().mockImplementation((url: string) => {
 			const parsed = new URL(url, 'http://localhost');
@@ -1160,7 +1317,10 @@ describe('searchFlightsForComp — multi-day', () => {
 
 	// ---- Multi-origin cases ----------------------------------------------------
 
-	it('multi-origin: picks cheapest in-time primary across origins', async () => {
+	it('multi-origin: prefers primary home airport even when secondary is cheaper', async () => {
+		// Primary home (JFK) at $410 wins over cheaper secondary (EWR) at $280.
+		// Same destination → cheaper secondary surfaces in cheaperFromAlt (NOT
+		// cheaperAlt, which now means "different destination").
 		const mockFn = findNearestAirports as ReturnType<typeof vi.fn>;
 		mockFn.mockReturnValue([
 			{
@@ -1204,19 +1364,123 @@ describe('searchFlightsForComp — multi-day', () => {
 		const result = await searchFlightsForComp(comp, ['JFK', 'EWR'], 1);
 
 		expect(result.primary).not.toBeNull();
-		expect(result.primary!.flight.origin).toBe('EWR');
-		expect(result.primary!.flight.price).toBe(280);
+		expect(result.primary!.flight.origin).toBe('JFK');
+		expect(result.primary!.flight.price).toBe(410);
+		// Same destination, cheaper from secondary → cheaperFromAlt slot
+		expect(result.cheaperFromAlt).not.toBeNull();
+		expect(result.cheaperFromAlt!.flight.origin).toBe('EWR');
+		expect(result.cheaperFromAlt!.flight.destination).toBe('LAX');
+		expect(result.cheaperFromAlt!.flight.price).toBe(280);
+		// No different-destination alt available
+		expect(result.cheaperAlt).toBeNull();
 		// Both origins were queried.
 		expect(queriedOrigins).toContain('JFK');
 		expect(queriedOrigins).toContain('EWR');
 	});
 
+	it('multi-origin: primary home wins even when only its result is late and a secondary is in-time', async () => {
+		// JFK (primary home) only has a late flight; EWR (secondary) has an in-time
+		// one. JFK still wins the primary slot — users picked JFK as their home for
+		// reasons beyond arrival time, and the allowPartial toggle on the list view
+		// is the right place to hide late comps. Secondary only takes the slot when
+		// primary returned nothing at all.
+		const mockFn = findNearestAirports as ReturnType<typeof vi.fn>;
+		mockFn.mockReturnValue([
+			{
+				airport: {
+					iata: 'LAX',
+					name: 'LAX',
+					latitude: 34,
+					longitude: -118,
+					city: 'LA',
+					country: 'US'
+				},
+				distanceKm: 50
+			}
+		]);
+
+		global.fetch = vi.fn().mockImplementation((url: string) => {
+			const parsed = new URL(url, 'http://localhost');
+			const origin = parsed.searchParams.get('origin')!;
+			const destination = parsed.searchParams.get('destination')!;
+			const departDate = parsed.searchParams.get('departDate')!;
+			// JFK arrives the day OF the comp (late). EWR arrives the day before (in-time).
+			const arrivalTime = origin === 'JFK' ? `2026-05-30T18:00:00` : `${departDate}T18:00:00`;
+			const flight = makeFlightResult({
+				origin,
+				destination,
+				price: origin === 'JFK' ? 200 : 350,
+				arrivalTime
+			});
+			return Promise.resolve(makeFetchResponse([flight]));
+		});
+
+		const comp = makeEnrichedCompetition({
+			latitude_degrees: 34,
+			longitude_degrees: -118,
+			start_date: '2026-05-30',
+			end_date: '2026-05-31'
+		});
+
+		const result = await searchFlightsForComp(comp, ['JFK', 'EWR'], 1);
+
+		expect(result.primary).not.toBeNull();
+		expect(result.primary!.flight.origin).toBe('JFK');
+		expect(result.primary!.flight.price).toBe(200);
+	});
+
+	it('multi-origin: secondary takes the primary slot only when primary returned nothing at all', async () => {
+		// JFK returns NO_INVENTORY (empty) for everything; EWR has an in-time flight.
+		// Only here does the secondary win.
+		const mockFn = findNearestAirports as ReturnType<typeof vi.fn>;
+		mockFn.mockReturnValue([
+			{
+				airport: {
+					iata: 'LAX',
+					name: 'LAX',
+					latitude: 34,
+					longitude: -118,
+					city: 'LA',
+					country: 'US'
+				},
+				distanceKm: 50
+			}
+		]);
+
+		global.fetch = vi.fn().mockImplementation((url: string) => {
+			const parsed = new URL(url, 'http://localhost');
+			const origin = parsed.searchParams.get('origin')!;
+			const destination = parsed.searchParams.get('destination')!;
+			const departDate = parsed.searchParams.get('departDate')!;
+			if (origin === 'JFK') return Promise.resolve(makeFetchResponse([])); // empty
+			const flight = makeFlightResult({
+				origin,
+				destination,
+				price: 350,
+				arrivalTime: `${departDate}T18:00:00`
+			});
+			return Promise.resolve(makeFetchResponse([flight]));
+		});
+
+		const comp = makeEnrichedCompetition({
+			latitude_degrees: 34,
+			longitude_degrees: -118,
+			start_date: '2026-05-30',
+			end_date: '2026-05-31'
+		});
+
+		const result = await searchFlightsForComp(comp, ['JFK', 'EWR'], 1);
+
+		expect(result.primary).not.toBeNull();
+		expect(result.primary!.flight.origin).toBe('EWR');
+	});
+
 	it('multi-origin: cheaperAlt surfaces a cheaper flight from a different origin', async () => {
-		// Setup: EWR has a cheaper alt to a different destination than the chosen
-		// primary (JFK→LAX). This is the intended "Cheaper from EWR" path.
-		//   EWR→LAX $550 (per-origin primary — beats JFK→LAX $600)
-		//   JFK→BUR $400 (within-chunk alt under JFK, different origin AND dest from primary)
-		// Global primary = EWR→LAX $550. cheaperAlt candidate = JFK→BUR $400.
+		// Setup with JFK as primary home, EWR as secondary:
+		//   JFK→LAX $600 (primary home wins the primary slot regardless of price)
+		//   JFK→BUR $400 (within-chunk alt — different dest, cheaper)
+		//   EWR→LAX $550 (secondary — different origin, cheaper)
+		// Chosen primary = JFK→LAX $600. cheaperAlt = JFK→BUR $400 (cheapest valid alt).
 		const mockFn = findNearestAirports as ReturnType<typeof vi.fn>;
 		mockFn.mockReturnValue([
 			{
@@ -1273,14 +1537,19 @@ describe('searchFlightsForComp — multi-day', () => {
 
 		const result = await searchFlightsForComp(comp, ['JFK', 'EWR'], 1);
 
-		expect(result.primary!.flight.origin).toBe('EWR');
+		expect(result.primary!.flight.origin).toBe('JFK');
 		expect(result.primary!.flight.destination).toBe('LAX');
-		expect(result.primary!.flight.price).toBe(550);
-		// Cheaper alt: JFK→BUR $400. Different origin AND different destination.
+		expect(result.primary!.flight.price).toBe(600);
+		// cheaperAlt: different DEST, cheaper → JFK→BUR $400
 		expect(result.cheaperAlt).not.toBeNull();
 		expect(result.cheaperAlt!.flight.origin).toBe('JFK');
 		expect(result.cheaperAlt!.flight.destination).toBe('BUR');
 		expect(result.cheaperAlt!.flight.price).toBe(400);
+		// cheaperFromAlt: same DEST as primary, different ORIGIN → EWR→LAX $550
+		expect(result.cheaperFromAlt).not.toBeNull();
+		expect(result.cheaperFromAlt!.flight.origin).toBe('EWR');
+		expect(result.cheaperFromAlt!.flight.destination).toBe('LAX');
+		expect(result.cheaperFromAlt!.flight.price).toBe(550);
 	});
 
 	it('multi-origin: one origin empty falls back to origin with inventory', async () => {
@@ -1356,6 +1625,143 @@ describe('searchFlightsForComp — multi-day', () => {
 
 		const result = await searchFlightsForComp(comp, ['JFK', 'EWR'], 1);
 		expect(result.primary).toBeNull();
+	});
+
+	it('cheaperFromAlt: surfaces secondary origin to same destination as primary', async () => {
+		// Single destination, EWR cheaper than JFK → cheaperFromAlt populated,
+		// cheaperAlt null (no different-destination option exists).
+		const mockFn = findNearestAirports as ReturnType<typeof vi.fn>;
+		mockFn.mockReturnValue([
+			{
+				airport: {
+					iata: 'LAX',
+					name: 'LAX',
+					latitude: 34,
+					longitude: -118,
+					city: 'LA',
+					country: 'US'
+				},
+				distanceKm: 50
+			}
+		]);
+
+		global.fetch = vi.fn().mockImplementation((url: string) => {
+			const parsed = new URL(url, 'http://localhost');
+			const origin = parsed.searchParams.get('origin')!;
+			const destination = parsed.searchParams.get('destination')!;
+			const departDate = parsed.searchParams.get('departDate')!;
+			const flight = makeFlightResult({
+				origin,
+				destination,
+				price: origin === 'EWR' ? 400 : 600,
+				arrivalTime: `${departDate}T18:00:00`
+			});
+			return Promise.resolve(makeFetchResponse([flight]));
+		});
+
+		const comp = makeEnrichedCompetition({
+			latitude_degrees: 34,
+			longitude_degrees: -118,
+			start_date: '2026-05-30',
+			end_date: '2026-05-31'
+		});
+
+		const result = await searchFlightsForComp(comp, ['JFK', 'EWR'], 1);
+
+		expect(result.primary!.flight.origin).toBe('JFK');
+		expect(result.primary!.flight.price).toBe(600);
+		expect(result.cheaperFromAlt).not.toBeNull();
+		expect(result.cheaperFromAlt!.flight.origin).toBe('EWR');
+		expect(result.cheaperFromAlt!.flight.destination).toBe('LAX');
+		expect(result.cheaperFromAlt!.flight.price).toBe(400);
+		expect(result.cheaperAlt).toBeNull();
+	});
+
+	it('cheaperFromAlt: null when no secondary undercuts primary', async () => {
+		const mockFn = findNearestAirports as ReturnType<typeof vi.fn>;
+		mockFn.mockReturnValue([
+			{
+				airport: {
+					iata: 'LAX',
+					name: 'LAX',
+					latitude: 34,
+					longitude: -118,
+					city: 'LA',
+					country: 'US'
+				},
+				distanceKm: 50
+			}
+		]);
+
+		global.fetch = vi.fn().mockImplementation((url: string) => {
+			const parsed = new URL(url, 'http://localhost');
+			const origin = parsed.searchParams.get('origin')!;
+			const destination = parsed.searchParams.get('destination')!;
+			const departDate = parsed.searchParams.get('departDate')!;
+			// JFK $400 (cheap primary), EWR $500 (more expensive secondary)
+			const flight = makeFlightResult({
+				origin,
+				destination,
+				price: origin === 'EWR' ? 500 : 400,
+				arrivalTime: `${departDate}T18:00:00`
+			});
+			return Promise.resolve(makeFetchResponse([flight]));
+		});
+
+		const comp = makeEnrichedCompetition({
+			latitude_degrees: 34,
+			longitude_degrees: -118,
+			start_date: '2026-05-30',
+			end_date: '2026-05-31'
+		});
+
+		const result = await searchFlightsForComp(comp, ['JFK', 'EWR'], 1);
+
+		expect(result.primary!.flight.origin).toBe('JFK');
+		expect(result.cheaperFromAlt).toBeNull();
+	});
+
+	it('cheaperFromAlt: null with single home airport (no secondary exists)', async () => {
+		const mockFn = findNearestAirports as ReturnType<typeof vi.fn>;
+		mockFn.mockReturnValue([
+			{
+				airport: {
+					iata: 'LAX',
+					name: 'LAX',
+					latitude: 34,
+					longitude: -118,
+					city: 'LA',
+					country: 'US'
+				},
+				distanceKm: 50
+			}
+		]);
+
+		global.fetch = vi.fn().mockImplementation((url: string) => {
+			const parsed = new URL(url, 'http://localhost');
+			const origin = parsed.searchParams.get('origin')!;
+			const destination = parsed.searchParams.get('destination')!;
+			const departDate = parsed.searchParams.get('departDate')!;
+			const flight = makeFlightResult({
+				origin,
+				destination,
+				price: 400,
+				arrivalTime: `${departDate}T18:00:00`
+			});
+			return Promise.resolve(makeFetchResponse([flight]));
+		});
+
+		const comp = makeEnrichedCompetition({
+			latitude_degrees: 34,
+			longitude_degrees: -118,
+			start_date: '2026-05-30',
+			end_date: '2026-05-31'
+		});
+
+		const result = await searchFlightsForComp(comp, ['JFK'], 1);
+
+		expect(result.primary).not.toBeNull();
+		expect(result.cheaperFromAlt).toBeNull();
 	});
 
 	it('multi-origin: noInventory sets are isolated per-origin', async () => {

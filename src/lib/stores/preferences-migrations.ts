@@ -1,4 +1,6 @@
-export const PREFS_SCHEMA_VERSION = 2;
+export const PREFS_SCHEMA_VERSION = 3;
+
+const MAX_DISTANCE_KM = 20037;
 
 type PrefsMigration = (data: Record<string, unknown>) => Record<string, unknown>;
 
@@ -22,6 +24,17 @@ const prefsMigrations: PrefsMigration[] = [
 			data.maxDaysBeforeComp > 7
 		) {
 			data.maxDaysBeforeComp = 3;
+		}
+		return data;
+	},
+	// v2 -> v3: Introduce maxDistanceKm and allowedCountries. Defaults preserve
+	// existing behavior: max distance = no limit, no country allowlist.
+	(data) => {
+		if (typeof data.maxDistanceKm !== 'number' || data.maxDistanceKm <= 0) {
+			data.maxDistanceKm = MAX_DISTANCE_KM;
+		}
+		if (!Array.isArray(data.allowedCountries)) {
+			data.allowedCountries = [];
 		}
 		return data;
 	}

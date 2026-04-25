@@ -20,8 +20,10 @@ export interface AirportFlight {
 export interface CompFlightData {
 	/** Flight from the nearest airport to the competition with availability */
 	primary: AirportFlight | null;
-	/** A farther airport with a cheaper flight (savings option) */
+	/** A different (typically farther) destination airport with a cheaper flight */
 	cheaperAlt: AirportFlight | null;
+	/** Same destination as primary but cheaper from a secondary home airport */
+	cheaperFromAlt: AirportFlight | null;
 	fallbackUrl: string | null;
 	/** Nearest airport IATA when primary flight uses a farther fallback airport */
 	nearestAirportIata?: string;

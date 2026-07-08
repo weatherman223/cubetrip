@@ -178,17 +178,27 @@ function extractFlights(payload: Payload, airlineMap: Map<string, string>): Flig
 	const flights: FlightResult[] = [];
 	const seen = new Set<string>();
 
-	const best = payload[IDX_BEST_FLIGHT_LIST[0]]?.[IDX_BEST_FLIGHT_LIST[1]];
-	const other = payload[IDX_OTHER_FLIGHT_LIST[0]]?.[IDX_OTHER_FLIGHT_LIST[1]];
+	const bestSlot = payload[IDX_BEST_FLIGHT_LIST[0]];
+	const otherSlot = payload[IDX_OTHER_FLIGHT_LIST[0]];
+	const best = bestSlot?.[IDX_BEST_FLIGHT_LIST[1]];
+	const other = otherSlot?.[IDX_OTHER_FLIGHT_LIST[1]];
 
-	// Structural-anomaly guard: if BOTH flight-list slots are missing, this
-	// isn't a results payload with zero flights — it's a payload shape we don't
-	// recognize (Google format change). Fail loud so the route caches it as a
-	// transient failure (5-min failKey/503) instead of sticky no-inventory.
 	if (!Array.isArray(best) && !Array.isArray(other)) {
+		// Genuine zero-results encoding: routes with no airline service at all
+		// (seaplane bases, GA-only strips — e.g. DEN→BED, DEN→CXH, observed
+		// live 2026-07) return a full, valid payload whose two list slots are
+		// both EXPLICITLY null while the surrounding metadata is intact. That
+		// is "no flights", not a format change — return [] so the route caches
+		// it as sticky no-inventory and the client skips the destination.
+		if (bestSlot === null && otherSlot === null) return [];
+
+		// Anything else in the list slots (objects, strings, truncated arrays)
+		// is a payload shape we don't recognize — a Google format change. Fail
+		// loud so the route caches it as a transient failure (5-min failKey /
+		// 503) instead of silently reporting zero flights everywhere.
 		throw new FlightParseError(
 			'unrecognized-structure',
-			'neither flight-list slot is an array — payload format may have changed'
+			'flight-list slots are neither arrays nor the null zero-results encoding — payload format may have changed'
 		);
 	}
 

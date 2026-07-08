@@ -179,11 +179,13 @@ describe('parseFlightResponse', () => {
 		);
 	});
 
-	it('throws unrecognized-structure when both flight-list slots are missing', () => {
-		// Valid JSON payload, but nothing at payload[2][0] / payload[3][0] —
-		// a format change, not a zero-flight route.
-		const html =
-			'<script class="ds:1">AF_initDataCallback({data:[1, null], sideChannel: {}});</script>';
+	it('throws unrecognized-structure when the flight-list slots hold unexpected values', () => {
+		// Valid JSON payload, but the list slots contain non-array, non-null
+		// junk — a format change, not a zero-flight route.
+		const payload: unknown[] = [];
+		payload[2] = 'unexpected';
+		payload[3] = { moved: true };
+		const html = `<script class="ds:1">AF_initDataCallback({data:${JSON.stringify(payload)}, sideChannel: {}});</script>`;
 		try {
 			parseFlightResponse(html);
 			expect.unreachable('should have thrown');
@@ -191,6 +193,33 @@ describe('parseFlightResponse', () => {
 			expect(err).toBeInstanceOf(FlightParseError);
 			expect((err as FlightParseError).reason).toBe('unrecognized-structure');
 		}
+	});
+
+	it('returns [] for the null zero-results encoding (route with no airline service)', () => {
+		// Mirrors the live payload shape observed for DEN→BED / DEN→CXH
+		// (seaplane bases, GA-only strips): valid payload, metadata intact,
+		// both list slots EXPLICITLY null. This is Google's "no flights found"
+		// encoding — it must be sticky no-inventory, not a parse failure.
+		const payload: unknown[] = [
+			[null, [[1783532818222151, 55304871, 956782753]], 0, 'token'], // [0] page meta
+			[[[['DEN', 0], 'Denver International Airport']]], // [1] airport info
+			null, // [2] best-flights slot — explicitly null
+			null, // [3] other-flights slot — explicitly null
+			null,
+			null,
+			[1], // [6] present on observed empty pages
+			[] // [7] airline meta container
+		];
+		const html = `<script class="ds:1">AF_initDataCallback({data:${JSON.stringify(payload)}, sideChannel: {}});</script>`;
+		expect(parseFlightResponse(html)).toEqual([]);
+	});
+
+	it('still throws when only one slot is null and the other is junk', () => {
+		const payload: unknown[] = [];
+		payload[2] = null;
+		payload[3] = 42;
+		const html = `<script class="ds:1">AF_initDataCallback({data:${JSON.stringify(payload)}, sideChannel: {}});</script>`;
+		expect(() => parseFlightResponse(html)).toThrow(FlightParseError);
 	});
 
 	it('parses a minimal structurally-valid payload to one flight (control)', () => {

@@ -17,11 +17,11 @@ const FAILURE_TTL = 5 * 60 * 1000; // 5 minutes — short enough to recover from
  * GET /api/flights?origin=DEN&destination=LAX&departDate=YYYY-MM-DD&returnDate=YYYY-MM-DD
  * Scrapes Google Flights for prices. Results are cached with two negative-cache kinds:
  *   - `flights:empty:*` — a successful scrape that found zero flights. Returned as
- *     200 with `{ flights: [] }`. The client maps this to NO_INVENTORY and adds
+ *     200 with `{ flights: [] }`. The client maps this to an `empty` result and adds
  *     the destination to its per-comp skip set, which keeps mode-B day iterations
  *     from re-scraping known-empty routes.
  *   - `flights:fail:*` — a scrape that threw (network, parse, 5xx). Returned as
- *     503 so the client treats it as transient (doesn't poison NO_INVENTORY).
+ *     503 so the client treats it as transient (doesn't poison the skip set).
  * Concurrent requests for the same route are coalesced into a single upstream fetch.
  * Response: { flights: FlightResult[], fetchedAt: string, fallbackUrl: string }
  * Errors: 400 (bad params), 429 (queue full), 503 (scrape failure)
@@ -59,7 +59,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	}
 
 	// Two separate negative-cache keys. emptyKey is the sticky "scrape said no
-	// inventory" signal that drives the client's NO_INVENTORY skip set; failKey
+	// inventory" signal that drives the client's no-inventory skip set; failKey
 	// is the transient "scrape errored" signal that surfaces as 503 so the
 	// client retries on refresh.
 	const emptyKey = `flights:empty:${origin}:${destination}:${departDate}:${returnDate}`;
@@ -85,7 +85,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			setCache(cacheKey, result, TTL.FLIGHTS);
 		} else {
 			// Scrape succeeded but route has no inventory. Sticky — the client
-			// reads this as NO_INVENTORY and skips the route on later days.
+			// reads this as `empty` and skips the route on later days.
 			setCache(emptyKey, true, FAILURE_TTL);
 		}
 

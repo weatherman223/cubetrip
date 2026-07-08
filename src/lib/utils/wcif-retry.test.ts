@@ -7,7 +7,8 @@ vi.mock('./enrich-wcif', () => ({
 		competitorCount: wcif.competitorCount ?? 0,
 		registrationStatus: 'open' as const,
 		scheduleStartTime: null,
-		scheduleEndTime: null
+		scheduleEndTime: null,
+		venueTimezone: null
 	}))
 }));
 
@@ -52,7 +53,8 @@ describe('retryUnknownComps', () => {
 					competitorCount: 50,
 					registrationStatus: 'open',
 					scheduleStartTime: null,
-					scheduleEndTime: null
+					scheduleEndTime: null,
+					venueTimezone: null
 				}
 			})
 		];

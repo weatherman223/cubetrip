@@ -302,4 +302,32 @@ describe('enrichWCIF', () => {
 		const result = enrichWCIF('2025-01-01', makeWcif());
 		expect(result.registrationStatus).toBe('closed');
 	});
+
+	it('surfaces the first venue timezone for venue-local schedule comparisons', () => {
+		const wcif = makeWcif({
+			schedule: {
+				startDate: '2025-06-01',
+				numberOfDays: 1,
+				venues: [
+					{
+						id: 1,
+						name: 'V',
+						latitudeMicrodegrees: 0,
+						longitudeMicrodegrees: 0,
+						countryIso2: 'US',
+						timezone: 'America/Chicago',
+						rooms: []
+					}
+				]
+			}
+		});
+		expect(enrichWCIF(null, wcif).venueTimezone).toBe('America/Chicago');
+	});
+
+	it('venueTimezone is null when the schedule has no venues', () => {
+		const wcif = makeWcif({
+			schedule: { startDate: '2025-06-01', numberOfDays: 1, venues: [] }
+		});
+		expect(enrichWCIF(null, wcif).venueTimezone).toBeNull();
+	});
 });

@@ -2,15 +2,20 @@ import type { EnrichedCompetition } from '$lib/server/wca/types';
 import type { FlightResult, FlightSearchResult } from '$lib/server/flights/types';
 import type { AirportFlight, CompFlightData } from '$lib/types';
 import { findNearestAirports } from './airport-lookup';
+import { utcToVenueLocal } from './dates';
 
 interface FlightApiResponse extends FlightSearchResult {
 	fallbackUrl?: string;
 }
 
+/**
+ * Shift a YYYY-MM-DD date by N calendar days. Pure UTC math — parsing as local
+ * midnight and serializing via toISOString() would be off by one for every
+ * user in a UTC+ timezone (local midnight is the previous UTC day there).
+ */
 export function shiftDate(dateStr: string, days: number): string {
-	const d = new Date(dateStr + 'T00:00:00');
-	d.setDate(d.getDate() + days);
-	return d.toISOString().split('T')[0];
+	const [y, m, d] = dateStr.split('-').map(Number);
+	return new Date(Date.UTC(y, m - 1, d + days)).toISOString().split('T')[0];
 }
 
 /**
@@ -31,7 +36,16 @@ export function isFlightLate(
 ): boolean {
 	if (flight.arrivalTime) {
 		const scheduleStart = comp.wcif?.scheduleStartTime;
-		if (scheduleStart) return flight.arrivalTime > scheduleStart;
+		if (scheduleStart) {
+			// WCIF times are UTC instants ("…Z"); Google arrival times are naive
+			// venue-local strings. Convert the schedule start into venue-local
+			// wall-clock time before comparing — a bare string compare is wrong
+			// by the venue's full UTC offset (in-time EU arrivals read as late,
+			// late US arrivals read as fine).
+			const tz = comp.wcif?.venueTimezone;
+			const startLocal = tz ? utcToVenueLocal(scheduleStart, tz) : scheduleStart;
+			return flight.arrivalTime > startLocal;
+		}
 		return flight.arrivalTime.split('T')[0] >= comp.start_date;
 	}
 
@@ -55,13 +69,20 @@ export function isFlightLate(
 }
 
 /**
- * Sentinel for "route successfully queried but has no inventory". Distinct
- * from `null`, which represents an error (HTTP failure, network, parse, 429).
- * Callers use this to decide whether it's safe to skip the route on later
- * searches within the same comp — errors shouldn't be sticky.
+ * Result of probing one origin→destination route:
+ *   - `hit`   — scrape succeeded with inventory.
+ *   - `empty` — scrape succeeded but found zero flights. Safe to skip this
+ *     destination on later day iterations within the same comp (sticky).
+ *   - `error` — transient failure (HTTP failure, network, 429, 503). NOT
+ *     sticky — the route may recover on a later day or refresh.
+ * `empty` and `error` still carry the server's Google Flights deep link so the
+ * "Check on Google Flights" fallback can render even when no route returns a
+ * flight — that's precisely the case the fallback exists for.
  */
-export const NO_INVENTORY = Symbol('no-inventory');
-export type FetchFlightResult = AirportFlight | typeof NO_INVENTORY | null;
+export type FetchFlightResult =
+	| { kind: 'hit'; result: AirportFlight }
+	| { kind: 'empty'; fallbackUrl: string | null }
+	| { kind: 'error'; fallbackUrl: string | null };
 
 /**
  * Per-route progress events for the live search feed. Emitted in order:
@@ -139,12 +160,20 @@ export async function fetchFlightForAirport(
 		);
 		if (!res.ok) {
 			emit({ kind: 'error', origin: homeAirport, destination: destIata, daysBefore });
-			return null;
+			// 503 SCRAPE_UNAVAILABLE bodies still carry the Google Flights deep
+			// link (apiError extra) — keep it so the fallback link can render.
+			let body: { fallbackUrl?: string } | null = null;
+			try {
+				body = await res.json();
+			} catch {
+				body = null; // non-JSON error body (proxy 502, aborted response)
+			}
+			return { kind: 'error', fallbackUrl: body?.fallbackUrl ?? null };
 		}
 		const data: FlightApiResponse = await res.json();
 		if (data.flights.length === 0) {
 			emit({ kind: 'empty', origin: homeAirport, destination: destIata, daysBefore });
-			return NO_INVENTORY;
+			return { kind: 'empty', fallbackUrl: data.fallbackUrl ?? null };
 		}
 		emit({
 			kind: 'hit',
@@ -154,14 +183,17 @@ export async function fetchFlightForAirport(
 			price: data.flights[0].price
 		});
 		return {
-			flight: data.flights[0],
-			fetchedAt: data.fetchedAt,
-			fallbackUrl: data.fallbackUrl ?? null,
-			daysBefore
+			kind: 'hit',
+			result: {
+				flight: data.flights[0],
+				fetchedAt: data.fetchedAt,
+				fallbackUrl: data.fallbackUrl ?? null,
+				daysBefore
+			}
 		};
 	} catch {
 		emit({ kind: 'error', origin: homeAirport, destination: destIata, daysBefore });
-		return null;
+		return { kind: 'error', fallbackUrl: null };
 	}
 }
 
@@ -226,11 +258,16 @@ async function searchSingleDay(
 		);
 		for (let i = 0; i < results.length; i++) {
 			const r = results[i];
-			if (r === NO_INVENTORY) {
+			if (r.kind === 'empty') {
 				noInventory?.add(chunk[i].airport.iata);
-			} else if (r) {
-				rawResults.push(r);
 				if (!fallbackUrl) fallbackUrl = r.fallbackUrl;
+			} else if (r.kind === 'error') {
+				// Transient — do NOT mark the destination as no-inventory, but do
+				// keep the deep link so an all-failed search still renders one.
+				if (!fallbackUrl) fallbackUrl = r.fallbackUrl;
+			} else {
+				rawResults.push(r.result);
+				if (!fallbackUrl) fallbackUrl = r.result.fallbackUrl;
 			}
 		}
 

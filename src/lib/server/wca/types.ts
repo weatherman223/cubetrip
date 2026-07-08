@@ -107,6 +107,12 @@ export interface EnrichedWCIF {
 	registrationStatus: RegistrationStatus;
 	scheduleStartTime: string | null;
 	scheduleEndTime: string | null;
+	/**
+	 * IANA timezone of the first venue (e.g. "America/Chicago"). Needed to
+	 * compare the UTC schedule times above against naive venue-local flight
+	 * arrival times.
+	 */
+	venueTimezone: string | null;
 }
 
 /** WCA competition enriched with WCIF data. wcif is null if WCIF fetch failed. */

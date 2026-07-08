@@ -1,62 +1,101 @@
 import type { FlightResult } from './types';
-import { logger } from '$lib/server/logger';
 
 // Hoisted regex constants for combineDateAndTime
 const TIME_12H_RE = /(\d{1,2}):(\d{2})\s*(AM|PM)/i;
 const TIME_24H_RE = /(\d{1,2}):(\d{2})/;
 const DATE_ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+export type FlightParseFailureReason =
+	| 'no-ds1-tag'
+	| 'no-data-key'
+	| 'bracket-mismatch'
+	| 'json-parse-failed'
+	| 'unrecognized-structure';
+
+/**
+ * Extraction/structure failure while parsing a Google Flights page. Thrown
+ * (never swallowed) so callers can tell "the scrape failed" apart from "the
+ * route genuinely has no flights" — a consent page, CAPTCHA interstitial, or
+ * payload-format change must surface as a transient failure (failKey/503),
+ * not get cached as sticky no-inventory.
+ */
+export class FlightParseError extends Error {
+	constructor(
+		public readonly reason: FlightParseFailureReason,
+		message: string
+	) {
+		super(message);
+		this.name = 'FlightParseError';
+	}
+}
+
 /**
  * Parse Google Flights HTML response to extract flight data.
- * Returns empty array on any parsing failure (graceful degradation).
+ * Returns [] only for a successfully parsed payload containing no itineraries;
+ * throws FlightParseError when the payload can't be extracted or recognized.
  */
 export function parseFlightResponse(html: string): FlightResult[] {
 	try {
 		const payload = extractPayload(html);
-		if (!payload) return [];
-
 		const airlineMap = buildAirlineMap(payload);
 		return extractFlights(payload, airlineMap);
 	} catch (err) {
-		logger.warn({ err }, 'flight response parsing failed');
-		return [];
+		if (err instanceof FlightParseError) throw err;
+		throw new FlightParseError(
+			'unrecognized-structure',
+			`unexpected parse failure: ${err instanceof Error ? err.message : String(err)}`
+		);
 	}
 }
 
 /**
  * Extract the nested data payload from the HTML script tag.
+ * Throws FlightParseError when the page doesn't look like a flight-results
+ * payload (missing ds:1 tag, missing data key, malformed JSON).
  */
-function extractPayload(html: string): unknown[] | null {
+function extractPayload(html: string): unknown[] {
 	// Extract the script tag with class="ds:1" containing flight data
 	const scriptMatch = html.match(/<script[^>]+class="ds:1"[^>]*>([\s\S]*?)<\/script>/);
-	if (!scriptMatch) {
-		logger.warn('could not find script.ds:1 tag');
-		return null;
+	if (!scriptMatch || !scriptMatch[1]) {
+		throw new FlightParseError(
+			'no-ds1-tag',
+			'could not find script.ds:1 tag — consent page, CAPTCHA, or layout change'
+		);
 	}
 
 	const scriptText = scriptMatch[1];
-	if (!scriptText) return null;
 
 	// The script content contains something like: ... data:[ ... ], ...
 	// We need to extract the data array
 	const dataIdx = scriptText.indexOf('data:');
 	if (dataIdx === -1) {
-		logger.warn('could not find "data:" in script content');
-		return null;
+		throw new FlightParseError('no-data-key', 'could not find "data:" in script content');
 	}
 
 	const afterData = scriptText.substring(dataIdx + 5);
 
 	// Find the matching end — the data value is followed by ", sideChannel:"
 	// We need to parse the JSON array that starts after "data:"
-	// Use a bracket counter to find the matching closing bracket
+	// Use a bracket counter to find the matching closing bracket, tracking
+	// string state so brackets inside string values (airline notices, fare
+	// rules — e.g. "Terminal ]A") don't corrupt the depth count.
 	let depth = 0;
 	let start = -1;
 	let end = -1;
+	let inString = false;
+	let escaped = false;
 
 	for (let i = 0; i < afterData.length; i++) {
 		const ch = afterData[i];
-		if (ch === '[' || ch === '{') {
+		if (inString) {
+			if (escaped) escaped = false;
+			else if (ch === '\\') escaped = true;
+			else if (ch === '"') inString = false;
+			continue;
+		}
+		if (ch === '"') {
+			inString = true;
+		} else if (ch === '[' || ch === '{') {
 			if (start === -1) start = i;
 			depth++;
 		} else if (ch === ']' || ch === '}') {
@@ -69,8 +108,7 @@ function extractPayload(html: string): unknown[] | null {
 	}
 
 	if (start === -1 || end === -1) {
-		logger.warn('could not bracket-match the data payload');
-		return null;
+		throw new FlightParseError('bracket-mismatch', 'could not bracket-match the data payload');
 	}
 
 	const jsonStr = afterData.substring(start, end);
@@ -78,8 +116,7 @@ function extractPayload(html: string): unknown[] | null {
 	try {
 		return JSON.parse(jsonStr) as unknown[];
 	} catch {
-		logger.warn('failed to parse data payload JSON');
-		return null;
+		throw new FlightParseError('json-parse-failed', 'failed to parse data payload JSON');
 	}
 }
 
@@ -141,6 +178,20 @@ function extractFlights(payload: Payload, airlineMap: Map<string, string>): Flig
 	const flights: FlightResult[] = [];
 	const seen = new Set<string>();
 
+	const best = payload[IDX_BEST_FLIGHT_LIST[0]]?.[IDX_BEST_FLIGHT_LIST[1]];
+	const other = payload[IDX_OTHER_FLIGHT_LIST[0]]?.[IDX_OTHER_FLIGHT_LIST[1]];
+
+	// Structural-anomaly guard: if BOTH flight-list slots are missing, this
+	// isn't a results payload with zero flights — it's a payload shape we don't
+	// recognize (Google format change). Fail loud so the route caches it as a
+	// transient failure (5-min failKey/503) instead of sticky no-inventory.
+	if (!Array.isArray(best) && !Array.isArray(other)) {
+		throw new FlightParseError(
+			'unrecognized-structure',
+			'neither flight-list slot is an array — payload format may have changed'
+		);
+	}
+
 	const parseList = (list: unknown) => {
 		if (!Array.isArray(list)) return;
 		for (const k of list) {
@@ -158,12 +209,8 @@ function extractFlights(payload: Payload, airlineMap: Map<string, string>): Flig
 		}
 	};
 
-	try {
-		parseList(payload[IDX_BEST_FLIGHT_LIST[0]]?.[IDX_BEST_FLIGHT_LIST[1]]);
-		parseList(payload[IDX_OTHER_FLIGHT_LIST[0]]?.[IDX_OTHER_FLIGHT_LIST[1]]);
-	} catch {
-		// Flight list not available
-	}
+	parseList(best);
+	parseList(other);
 
 	return flights;
 }
@@ -235,11 +282,13 @@ export function normalizeDate(raw: unknown): string {
 
 /**
  * Normalize Google's per-segment time into "HH:MM".
- * Observed shapes: `[hour, minute]` or `[hour]` when minutes are 0.
+ * Observed shapes: `[hour, minute]`, `[hour]` when minutes are 0, and
+ * `[null, minute]` / `[null]` for the midnight hour — Google encodes hour 0
+ * as null (observed on live red-eye flights, e.g. a 00:11 arrival as [null, 11]).
  */
 export function normalizeTime(raw: unknown): string {
 	if (Array.isArray(raw) && raw.length >= 1) {
-		const h = raw[0];
+		const h = raw[0] == null ? 0 : raw[0];
 		const m = typeof raw[1] === 'number' ? raw[1] : 0;
 		if (typeof h === 'number') {
 			return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -280,10 +329,22 @@ export function combineDateAndTime(date: string, time: string): string {
 		return `${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
 	}
 
-	// Otherwise try to parse the date string
+	// Otherwise try to parse the date string. Reject year-less dates outright
+	// ("Mon, Jan 1") — JS would default them to 2001 and produce silently-wrong
+	// timestamps; better to return '' and let the duration-based fallback in
+	// isFlightLate estimate the arrival day.
+	if (!/\d{4}/.test(date)) return '';
 	const parsed = new Date(`${date} ${time}`);
 	if (!isNaN(parsed.getTime())) {
-		return parsed.toISOString();
+		// Serialize with local getters to match the ISO branch's naive local
+		// format — toISOString() would shift into UTC and mix two different
+		// formats (and timezone semantics) in downstream comparisons.
+		const y = parsed.getFullYear();
+		const mo = String(parsed.getMonth() + 1).padStart(2, '0');
+		const d = String(parsed.getDate()).padStart(2, '0');
+		const hh = String(parsed.getHours()).padStart(2, '0');
+		const mm = String(parsed.getMinutes()).padStart(2, '0');
+		return `${y}-${mo}-${d}T${hh}:${mm}:00`;
 	}
 
 	return '';

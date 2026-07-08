@@ -70,6 +70,7 @@ export function enrichWCIF(cancelledAt: string | null, wcif: WCIFPublicData): En
 		competitorCount: wcif.competitorCount,
 		registrationStatus: computeRegistrationStatus(cancelledAt, wcif),
 		scheduleStartTime: times.start,
-		scheduleEndTime: times.end
+		scheduleEndTime: times.end,
+		venueTimezone: wcif.schedule.venues[0]?.timezone ?? null
 	};
 }

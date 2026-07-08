@@ -262,6 +262,14 @@ describe('shiftDate', () => {
 	it('year boundary: 2026-01-01 - 1 = 2025-12-31', () => {
 		expect(shiftDate('2026-01-01', -1)).toBe('2025-12-31');
 	});
+
+	// shiftDate must be pure calendar math, independent of process timezone.
+	// The old local-midnight/toISOString implementation returned the PREVIOUS
+	// day for every user in a UTC+ zone — even for a zero-day shift. These
+	// pass in any TZ now; CI/local runs under TZ=Asia/Tokyo prove it.
+	it('identity: shifting by 0 days returns the same date in any timezone', () => {
+		expect(shiftDate('2026-08-15', 0)).toBe('2026-08-15');
+	});
 });
 
 describe('fetchFlightForAirport', () => {
@@ -269,7 +277,7 @@ describe('fetchFlightForAirport', () => {
 		vi.restoreAllMocks();
 	});
 
-	it('success returns AirportFlight with correct shape', async () => {
+	it('success returns a hit with the AirportFlight payload', async () => {
 		const flight = makeFlightResult({ origin: 'DEN', destination: 'LAX', price: 199 });
 		global.fetch = vi
 			.fn()
@@ -277,28 +285,51 @@ describe('fetchFlightForAirport', () => {
 
 		const result = await fetchFlightForAirport('DEN', 'LAX', '2025-08-14', '2025-08-17');
 
-		expect(result).not.toBeNull();
-		// Narrow past NO_INVENTORY for property access below.
-		if (result === null || typeof result === 'symbol') throw new Error('expected AirportFlight');
-		expect(result.flight.origin).toBe('DEN');
-		expect(result.flight.destination).toBe('LAX');
-		expect(result.flight.price).toBe(199);
-		expect(result.fetchedAt).toBe('2025-08-14T00:00:00Z');
-		expect(result.fallbackUrl).toBe('https://flights.google.com');
+		expect(result.kind).toBe('hit');
+		if (result.kind !== 'hit') throw new Error('expected hit');
+		expect(result.result.flight.origin).toBe('DEN');
+		expect(result.result.flight.destination).toBe('LAX');
+		expect(result.result.flight.price).toBe(199);
+		expect(result.result.fetchedAt).toBe('2025-08-14T00:00:00Z');
+		expect(result.result.fallbackUrl).toBe('https://flights.google.com');
 	});
 
-	it('HTTP error (res.ok=false) returns null', async () => {
+	it('HTTP error (res.ok=false) returns an error result (non-sticky)', async () => {
 		global.fetch = vi.fn().mockResolvedValue({ ok: false } as Response);
 
 		const result = await fetchFlightForAirport('DEN', 'LAX', '2025-08-14', '2025-08-17');
-		expect(result).toBeNull();
+		expect(result).toEqual({ kind: 'error', fallbackUrl: null });
 	});
 
-	it('fetch throws returns null', async () => {
+	it('HTTP 503 body fallbackUrl is preserved on error results', async () => {
+		global.fetch = vi.fn().mockResolvedValue({
+			ok: false,
+			json: async () => ({
+				error: 'Flight data temporarily unavailable',
+				code: 'SCRAPE_UNAVAILABLE',
+				fallbackUrl: 'https://www.google.com/travel/flights/search?tfs=SENTINEL'
+			})
+		} as unknown as Response);
+
+		const result = await fetchFlightForAirport('DEN', 'LAX', '2025-08-14', '2025-08-17');
+		expect(result).toEqual({
+			kind: 'error',
+			fallbackUrl: 'https://www.google.com/travel/flights/search?tfs=SENTINEL'
+		});
+	});
+
+	it('empty response returns empty carrying the fallbackUrl', async () => {
+		global.fetch = vi.fn().mockResolvedValue(makeFetchResponse([], 'https://flights.google.com'));
+
+		const result = await fetchFlightForAirport('DEN', 'LAX', '2025-08-14', '2025-08-17');
+		expect(result).toEqual({ kind: 'empty', fallbackUrl: 'https://flights.google.com' });
+	});
+
+	it('fetch throws returns an error result with null fallbackUrl', async () => {
 		global.fetch = vi.fn().mockRejectedValue(new Error('network error'));
 
 		const result = await fetchFlightForAirport('DEN', 'LAX', '2025-08-14', '2025-08-17');
-		expect(result).toBeNull();
+		expect(result).toEqual({ kind: 'error', fallbackUrl: null });
 	});
 
 	describe('onRouteEvent', () => {
@@ -442,6 +473,50 @@ describe('searchFlightsForComp', () => {
 		expect(result.fallbackUrl).toBe('https://flights.google.com');
 	});
 
+	it('all routes empty: primary is null but the fallbackUrl still survives', async () => {
+		// "Check on Google Flights" exists precisely for the case where no route
+		// returned a flight — the deep link must not be discarded with the
+		// empty results.
+		global.fetch = vi
+			.fn()
+			.mockResolvedValue(makeFetchResponse([], 'https://flights.google.com/?tfs=SENTINEL'));
+
+		const comp = makeEnrichedCompetition({
+			latitude_degrees: 34.0,
+			longitude_degrees: -118.0,
+			start_date: '2025-08-15',
+			end_date: '2025-08-16'
+		});
+
+		const result = await searchFlightsForComp(comp, ['DEN']);
+
+		expect(result.primary).toBeNull();
+		expect(result.fallbackUrl).toBe('https://flights.google.com/?tfs=SENTINEL');
+	});
+
+	it('all routes erroring (503): fallbackUrl from the error body still survives', async () => {
+		global.fetch = vi.fn().mockResolvedValue({
+			ok: false,
+			json: async () => ({
+				error: 'Flight data temporarily unavailable',
+				code: 'SCRAPE_UNAVAILABLE',
+				fallbackUrl: 'https://flights.google.com/?tfs=FAILURE'
+			})
+		} as unknown as Response);
+
+		const comp = makeEnrichedCompetition({
+			latitude_degrees: 34.0,
+			longitude_degrees: -118.0,
+			start_date: '2025-08-15',
+			end_date: '2025-08-16'
+		});
+
+		const result = await searchFlightsForComp(comp, ['DEN']);
+
+		expect(result.primary).toBeNull();
+		expect(result.fallbackUrl).toBe('https://flights.google.com/?tfs=FAILURE');
+	});
+
 	it('first batch empty, expands to second batch', async () => {
 		const flight = makeFlightResult({ origin: 'DEN', destination: 'SMF', price: 250 });
 		let callCount = 0;
@@ -563,7 +638,8 @@ describe('isFlightLate', () => {
 				competitorCount: 0,
 				registrationStatus: 'open',
 				scheduleStartTime: '2025-08-15T12:00:00Z',
-				scheduleEndTime: '2025-08-16T18:00:00Z'
+				scheduleEndTime: '2025-08-16T18:00:00Z',
+				venueTimezone: null
 			}
 		});
 		expect(isFlightLate(flight, comp)).toBe(false);
@@ -579,7 +655,8 @@ describe('isFlightLate', () => {
 				competitorCount: 0,
 				registrationStatus: 'open',
 				scheduleStartTime: '2025-08-15T12:00:00',
-				scheduleEndTime: '2025-08-16T18:00:00'
+				scheduleEndTime: '2025-08-16T18:00:00',
+				venueTimezone: null
 			}
 		});
 		expect(isFlightLate(flight, comp)).toBe(true);
@@ -615,6 +692,61 @@ describe('isFlightLate', () => {
 		const flight = { arrivalTime: '', duration: 180 };
 		const comp = makeEnrichedCompetition({ start_date: '2026-04-26', wcif: null });
 		expect(isFlightLate(flight, comp, 1)).toBe(false);
+	});
+
+	// WCIF schedule times are UTC instants; Google arrival times are naive
+	// venue-local. The comparison must convert to venue-local wall-clock time —
+	// the raw string compare was wrong by the venue's full UTC offset.
+	it('US venue (CDT, UTC-5): arriving 1h AFTER the 9am local start is late', () => {
+		// Comp in Chicago starts 9:00 AM CDT = 14:00Z
+		const comp = makeEnrichedCompetition({
+			start_date: '2026-08-15',
+			wcif: {
+				onTheSpotRegistration: false,
+				competitorLimit: 100,
+				competitorCount: 50,
+				registrationStatus: 'open',
+				scheduleStartTime: '2026-08-15T14:00:00Z',
+				scheduleEndTime: '2026-08-15T23:00:00Z',
+				venueTimezone: 'America/Chicago'
+			}
+		});
+		// Lands 10:00 AM Chicago local — an hour after round 1 started.
+		expect(isFlightLate({ arrivalTime: '2026-08-15T10:00:00' }, comp)).toBe(true);
+	});
+
+	it('EU venue (CEST, UTC+2): arriving 1h BEFORE the 9am local start is NOT late', () => {
+		// Comp in Berlin starts 9:00 AM CEST = 07:00Z
+		const comp = makeEnrichedCompetition({
+			start_date: '2026-08-15',
+			wcif: {
+				onTheSpotRegistration: false,
+				competitorLimit: 100,
+				competitorCount: 50,
+				registrationStatus: 'open',
+				scheduleStartTime: '2026-08-15T07:00:00Z',
+				scheduleEndTime: '2026-08-15T16:00:00Z',
+				venueTimezone: 'Europe/Berlin'
+			}
+		});
+		// Lands 8:00 AM Berlin local — an hour of slack before the start.
+		expect(isFlightLate({ arrivalTime: '2026-08-15T08:00:00' }, comp)).toBe(false);
+	});
+
+	it('invalid venue timezone falls back to the raw comparison without throwing', () => {
+		const comp = makeEnrichedCompetition({
+			start_date: '2026-08-15',
+			wcif: {
+				onTheSpotRegistration: false,
+				competitorLimit: 100,
+				competitorCount: 50,
+				registrationStatus: 'open',
+				scheduleStartTime: '2026-08-15T14:00:00Z',
+				scheduleEndTime: '2026-08-15T23:00:00Z',
+				venueTimezone: 'Not/AZone'
+			}
+		});
+		expect(() => isFlightLate({ arrivalTime: '2026-08-15T10:00:00' }, comp)).not.toThrow();
 	});
 });
 
@@ -1938,7 +2070,8 @@ describe('fetchFlightsForCompetitions', () => {
 				competitorCount: 20,
 				registrationStatus: 'open',
 				scheduleStartTime: null,
-				scheduleEndTime: null
+				scheduleEndTime: null,
+				venueTimezone: null
 			}
 		});
 		const closedComp = makeEnrichedCompetition({
@@ -1951,7 +2084,8 @@ describe('fetchFlightsForCompetitions', () => {
 				competitorCount: 100,
 				registrationStatus: 'closed',
 				scheduleStartTime: null,
-				scheduleEndTime: null
+				scheduleEndTime: null,
+				venueTimezone: null
 			}
 		});
 
@@ -1995,7 +2129,8 @@ describe('fetchFlightsForCompetitions', () => {
 				competitorCount: 20,
 				registrationStatus: 'open',
 				scheduleStartTime: null,
-				scheduleEndTime: null
+				scheduleEndTime: null,
+				venueTimezone: null
 			}
 		});
 		const closedComp = makeEnrichedCompetition({
@@ -2008,7 +2143,8 @@ describe('fetchFlightsForCompetitions', () => {
 				competitorCount: 100,
 				registrationStatus: 'closed',
 				scheduleStartTime: null,
-				scheduleEndTime: null
+				scheduleEndTime: null,
+				venueTimezone: null
 			}
 		});
 

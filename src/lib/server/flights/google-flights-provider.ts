@@ -26,13 +26,15 @@ export class GoogleFlightsProtobufProvider implements FlightProvider {
 				fetchedAt: new Date().toISOString()
 			};
 		} catch (err) {
-			// Re-throw queue errors so the route handler can return 429
-			if (err instanceof QueueFullError) throw err;
-			logger.error({ err, origin, destination }, 'flight search failed');
-			return {
-				flights: [],
-				fetchedAt: new Date().toISOString()
-			};
+			// All errors propagate: the route maps QueueFullError to 429 and
+			// everything else (fetch failure, timeout, FlightParseError) to the
+			// transient failKey + 503 path. Swallowing errors into {flights: []}
+			// here would make a failed scrape indistinguishable from a genuinely
+			// empty route and cache it as sticky no-inventory.
+			if (!(err instanceof QueueFullError)) {
+				logger.error({ err, origin, destination }, 'flight search failed');
+			}
+			throw err;
 		}
 	}
 }

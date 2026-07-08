@@ -114,35 +114,34 @@ describe('GoogleFlightsProtobufProvider', () => {
 		);
 	});
 
-	it('parse error returns empty flights', async () => {
+	// Scrape failures must PROPAGATE, not resolve as {flights: []} — the route
+	// distinguishes "scrape failed" (failKey + 503, transient) from "scraped
+	// fine, zero flights" (emptyKey + 200, sticky no-inventory) by whether
+	// searchFlights throws. Swallowing errors here caches bot-blocks and parse
+	// breakage as authoritative empty routes.
+	it('parse error (FlightParseError) is re-thrown', async () => {
 		vi.mocked(parseFlightResponse).mockImplementation(() => {
 			throw new Error('parse failed');
 		});
 
-		const result = await provider.searchFlights('DEN', 'LAX', '2025-08-01', '2025-08-05');
-		expect(result.flights).toEqual([]);
-		expect(result.fetchedAt).toBeTruthy();
+		await expect(provider.searchFlights('DEN', 'LAX', '2025-08-01', '2025-08-05')).rejects.toThrow(
+			'parse failed'
+		);
 	});
 
-	it('fetch error (non-QueueFull) returns empty flights', async () => {
-		vi.mocked(fetchFlightPage).mockRejectedValue(new Error('network error'));
+	it('fetch error (403 bot-block, timeout, network) is re-thrown', async () => {
+		vi.mocked(fetchFlightPage).mockRejectedValue(
+			new Error('Google Flights returned 403 Forbidden')
+		);
 
-		const result = await provider.searchFlights('DEN', 'LAX', '2025-08-01', '2025-08-05');
-		expect(result.flights).toEqual([]);
-		expect(result.fetchedAt).toBeTruthy();
+		await expect(provider.searchFlights('DEN', 'LAX', '2025-08-01', '2025-08-05')).rejects.toThrow(
+			'403'
+		);
 	});
 
-	it('fetchedAt is set on both success and error paths', async () => {
-		const isoDateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
-
-		// Success path
+	it('fetchedAt is set on the success path', async () => {
 		vi.mocked(parseFlightResponse).mockReturnValue([]);
 		const successResult = await provider.searchFlights('DEN', 'LAX', '2025-08-01', '2025-08-05');
-		expect(successResult.fetchedAt).toMatch(isoDateRegex);
-
-		// Error path (non-QueueFull error gets caught)
-		vi.mocked(fetchFlightPage).mockRejectedValue(new Error('fail'));
-		const errorResult = await provider.searchFlights('DEN', 'LAX', '2025-08-01', '2025-08-05');
-		expect(errorResult.fetchedAt).toMatch(isoDateRegex);
+		expect(successResult.fetchedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
 	});
 });

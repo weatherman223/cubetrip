@@ -229,7 +229,7 @@
 						? `✈ ${distLabel}`
 						: '';
 
-			const { label: statusLabel, color: badgeColor } = getStatusHex(
+			const { label: statusLabel, deep: badgeColor } = getStatusHex(
 				comp.wcif?.registrationStatus,
 				comp.cancelled_at !== null
 			);
@@ -246,7 +246,7 @@
 				<div style="font-family:'JetBrains Mono',monospace;min-width:180px">
 					<div style="font-size:13px;font-weight:bold;margin-bottom:4px">${esc(comp.name)}</div>
 					<div style="font-size:11px;color:#64748b;margin-bottom:6px">${esc(comp.city)} · ${esc(comp.date_range)}</div>
-					<span style="display:inline-block;background:${esc(badgeColor)};color:#0f172a;font-size:9px;padding:1px 6px;border-radius:9px;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">${esc(statusLabel)}</span>
+					<span style="display:inline-block;background:${esc(badgeColor)};color:white;font-size:9px;padding:1px 6px;border-radius:9px;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">${esc(statusLabel)}</span>
 					${travelInfo ? `<div style="font-size:12px;font-weight:bold;color:#f59e0b;margin-top:4px">${esc(travelInfo)}</div>` : ''}
 					<div style="margin-top:6px">
 						<a href="${safeUrl}" target="_blank" style="font-size:10px;color:#38bdf8;text-decoration:none">VIEW ON WCA →</a>

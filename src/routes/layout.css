@@ -24,6 +24,16 @@
 	--color-airline-upcoming: #3b82f6;
 	--color-airline-closed: #94a3b8;
 	--color-airline-cancelled: #ef4444;
+
+	/* Deep status variants: badge backgrounds dark enough for white text at
+	   WCAG AA (all >=4.9:1 vs #fff). The bright versions above stay in use for
+	   map markers and status dots, where they sit on light tiles/paper. */
+	--color-airline-open-deep: #15803d;
+	--color-airline-standby-deep: #a16207;
+	--color-airline-waitlist-deep: #b45309;
+	--color-airline-upcoming-deep: #2563eb;
+	--color-airline-closed-deep: #475569;
+	--color-airline-cancelled-deep: #b91c1c;
 }
 
 @media (prefers-reduced-motion: reduce) {

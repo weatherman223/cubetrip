@@ -2,7 +2,8 @@ import type { RegistrationStatus } from '$lib/server/wca/types';
 
 export interface StatusDisplayHex {
 	label: string;
-	color: string; // hex color for Leaflet/canvas contexts
+	color: string; // bright hex for map markers (sits on light tiles)
+	deep: string; // darkened hex for badge backgrounds with white text (>=4.5:1)
 }
 
 export interface StatusDisplayTailwind {
@@ -13,56 +14,60 @@ export interface StatusDisplayTailwind {
 }
 
 const hexMap: Record<string, StatusDisplayHex> = {
-	open: { label: 'BOARDING', color: '#22c55e' },
-	'on-the-spot': { label: 'STANDBY', color: '#eab308' },
-	waitlist: { label: 'WAITLIST', color: '#f59e0b' },
-	'not-open-yet': { label: 'PREBOARDING', color: '#3b82f6' },
-	closed: { label: 'GATE CLOSED', color: '#94a3b8' },
-	cancelled: { label: 'CANCELLED', color: '#ef4444' }
+	open: { label: 'BOARDING', color: '#22c55e', deep: '#15803d' },
+	'on-the-spot': { label: 'STANDBY', color: '#eab308', deep: '#a16207' },
+	waitlist: { label: 'WAITLIST', color: '#f59e0b', deep: '#b45309' },
+	'not-open-yet': { label: 'PREBOARDING', color: '#3b82f6', deep: '#2563eb' },
+	closed: { label: 'GATE CLOSED', color: '#94a3b8', deep: '#475569' },
+	cancelled: { label: 'CANCELLED', color: '#ef4444', deep: '#b91c1c' }
 };
 
-const defaultHex: StatusDisplayHex = { label: 'CHECKING STATUS', color: '#94a3b8' };
+const defaultHex: StatusDisplayHex = {
+	label: 'CHECKING STATUS',
+	color: '#94a3b8',
+	deep: '#334155'
+};
 
-// All mapped status backgrounds are light enough that white 10px text fails
-// WCAG AA (green/yellow/amber sit at ~1.6-1.9:1); dark midnight text passes
-// >=4.5:1 on every one. Only the slate "checking" default is a dark bg where
-// white remains the readable choice.
+// Badges pair white text with the darkened "-deep" status backgrounds (all
+// >=4.9:1, WCAG AA at 10px) — the bright base tokens fail with white text
+// (green/yellow/amber sit at ~1.9-2.3:1) and stay reserved for status dots
+// and map markers, which sit on light surfaces.
 const tailwindMap: Record<string, StatusDisplayTailwind> = {
 	open: {
 		label: 'BOARDING',
-		color: 'bg-airline-open',
+		color: 'bg-airline-open-deep',
 		dot: 'bg-airline-open',
-		text: 'text-airline-midnight'
+		text: 'text-white'
 	},
 	'on-the-spot': {
 		label: 'STANDBY',
-		color: 'bg-airline-standby',
+		color: 'bg-airline-standby-deep',
 		dot: 'bg-airline-standby',
-		text: 'text-airline-midnight'
+		text: 'text-white'
 	},
 	waitlist: {
 		label: 'WAITLIST',
-		color: 'bg-airline-amber',
+		color: 'bg-airline-waitlist-deep',
 		dot: 'bg-airline-amber',
-		text: 'text-airline-midnight'
+		text: 'text-white'
 	},
 	'not-open-yet': {
 		label: 'PREBOARDING',
-		color: 'bg-airline-upcoming',
+		color: 'bg-airline-upcoming-deep',
 		dot: 'bg-airline-upcoming',
-		text: 'text-airline-midnight'
+		text: 'text-white'
 	},
 	closed: {
 		label: 'GATE CLOSED',
-		color: 'bg-airline-closed',
+		color: 'bg-airline-closed-deep',
 		dot: 'bg-airline-closed',
-		text: 'text-airline-midnight'
+		text: 'text-white'
 	},
 	cancelled: {
 		label: 'CANCELLED',
-		color: 'bg-airline-cancelled',
+		color: 'bg-airline-cancelled-deep',
 		dot: 'bg-airline-cancelled',
-		text: 'text-airline-midnight'
+		text: 'text-white'
 	}
 };
 

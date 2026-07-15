@@ -226,7 +226,7 @@
 
 			<div class="flex flex-col items-center gap-2">
 				<span
-					class="inline-flex items-center gap-1.5 rounded-full px-3 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-white {statusConfig.color}"
+					class="inline-flex items-center gap-1.5 rounded-full px-3 py-0.5 font-mono text-[10px] font-semibold tracking-wider {statusConfig.text} {statusConfig.color}"
 				>
 					{statusConfig.label}
 				</span>

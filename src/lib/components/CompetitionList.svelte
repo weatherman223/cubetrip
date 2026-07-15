@@ -18,7 +18,8 @@
 		flightDayProgress = new Map(),
 		dataFetchedAt = null,
 		onRefresh = null,
-		refreshStatuses = new Map()
+		refreshStatuses = new Map(),
+		emptyMessage = null
 	}: {
 		competitions: EnrichedCompetition[];
 		loading: boolean;
@@ -33,6 +34,9 @@
 		dataFetchedAt?: string | null;
 		onRefresh?: ((compId: string) => void) | null;
 		refreshStatuses?: Map<string, 'wcif' | 'flights' | 'done' | 'partial' | 'error'>;
+		/** Override for the zero-results copy — e.g. when filters (not the date
+		 * range) are what emptied the list. */
+		emptyMessage?: string | null;
 	} = $props();
 </script>
 
@@ -41,7 +45,7 @@
 {:else if error}
 	<StatusMessage variant="error" message={error} {onRetry} />
 {:else if competitions.length === 0}
-	<StatusMessage variant="empty" />
+	<StatusMessage variant="empty" message={emptyMessage ?? undefined} />
 {:else}
 	<div class="flex flex-col gap-4">
 		{#each competitions as competition (competition.id)}

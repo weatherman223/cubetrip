@@ -168,6 +168,11 @@
 			const marker = L.marker([h.lat, h.lng], { icon: homeIcon })
 				.addTo(mapInstance)
 				.bindPopup(popupHtml);
+			// Leaflet markers are keyboard-focusable; give each an accessible name
+			// (the `alt` option only applies to img icons, not divIcons).
+			marker
+				.getElement()
+				?.setAttribute('aria-label', h.primary ? 'Home base' : `Also searching — ${h.iata ?? ''}`);
 			homeMarkers.push(marker);
 
 			const circle = L.circle([h.lat, h.lng], {
@@ -211,6 +216,7 @@
 			const marker = L.marker([comp.latitude_degrees, comp.longitude_degrees], { icon }).addTo(
 				markersLayer!
 			);
+			marker.getElement()?.setAttribute('aria-label', comp.name);
 
 			// Build popup
 			const price = flightData?.primary?.flight.price;
@@ -240,7 +246,7 @@
 				<div style="font-family:'JetBrains Mono',monospace;min-width:180px">
 					<div style="font-size:13px;font-weight:bold;margin-bottom:4px">${esc(comp.name)}</div>
 					<div style="font-size:11px;color:#64748b;margin-bottom:6px">${esc(comp.city)} · ${esc(comp.date_range)}</div>
-					<span style="display:inline-block;background:${esc(badgeColor)};color:white;font-size:9px;padding:1px 6px;border-radius:9px;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">${esc(statusLabel)}</span>
+					<span style="display:inline-block;background:${esc(badgeColor)};color:#0f172a;font-size:9px;padding:1px 6px;border-radius:9px;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">${esc(statusLabel)}</span>
 					${travelInfo ? `<div style="font-size:12px;font-weight:bold;color:#f59e0b;margin-top:4px">${esc(travelInfo)}</div>` : ''}
 					<div style="margin-top:6px">
 						<a href="${safeUrl}" target="_blank" style="font-size:10px;color:#38bdf8;text-decoration:none">VIEW ON WCA →</a>
@@ -269,15 +275,15 @@
 			aria-pressed={colorMode === 'status'}
 			onclick={() => (colorMode = 'status')}
 			class="rounded-full px-3 py-1 transition-colors {colorMode === 'status'
-				? 'text-airline-dark bg-airline-amber'
-				: 'bg-airline-dark-card text-airline-slate-light hover:bg-airline-slate/20'}">STATUS</button
+				? 'bg-airline-amber text-airline-midnight'
+				: 'bg-airline-navy text-airline-slate-light hover:bg-airline-slate/20'}">STATUS</button
 		>
 		<button
 			aria-pressed={colorMode === 'travel'}
 			onclick={() => (colorMode = 'travel')}
 			class="rounded-full px-3 py-1 transition-colors {colorMode === 'travel'
-				? 'text-airline-dark bg-airline-amber'
-				: 'bg-airline-dark-card text-airline-slate-light hover:bg-airline-slate/20'}">TRAVEL</button
+				? 'bg-airline-amber text-airline-midnight'
+				: 'bg-airline-navy text-airline-slate-light hover:bg-airline-slate/20'}">TRAVEL</button
 		>
 	</div>
 
@@ -290,7 +296,7 @@
 
 	<!-- Legend overlay -->
 	<div
-		class="bg-airline-dark/90 absolute bottom-3 left-3 z-[1000] rounded-lg px-3 py-2 font-mono text-[9px] tracking-wider text-white backdrop-blur-sm"
+		class="absolute bottom-3 left-3 z-[1000] rounded-lg bg-airline-midnight/90 px-3 py-2 font-mono text-[9px] tracking-wider text-white backdrop-blur-sm"
 	>
 		<!-- markerSvg() returns fully-controlled, hard-coded SVG with no user input;
 			 the only dynamic values are the color string and shape enum, both from

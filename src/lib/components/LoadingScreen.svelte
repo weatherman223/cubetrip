@@ -15,7 +15,8 @@
 	});
 </script>
 
-<div class="flex min-h-[60vh] flex-col items-center justify-center px-4">
+<!-- <main id="main-content"> keeps the layout skip-link functional while loading. -->
+<main id="main-content" class="flex min-h-[60vh] flex-col items-center justify-center px-4">
 	<!-- CubeTrip logo -->
 	<div class="boot-in mb-8 text-center">
 		<span class="mb-2 block text-5xl">✈</span>
@@ -34,10 +35,16 @@
 		<div class="progress-bar h-full rounded-full bg-airline-amber"></div>
 	</div>
 
-	<!-- Status text -->
-	<div class="h-5 text-center" aria-live="polite" aria-atomic="true">
+	<!-- Announced once for screen readers; the cycling flavor text below is
+		decorative and deliberately NOT a live region (it changes every 2s and
+		would be re-announced for the entire wait). -->
+	<p class="sr-only" role="status">Loading competitions</p>
+
+	<!-- Status text (visual flavor only) -->
+	<div class="h-5 text-center">
 		<p
 			class="status-text font-mono text-[11px] tracking-[0.2em] text-airline-slate-light uppercase"
+			aria-hidden="true"
 		>
 			{statuses[statusIndex]}
 			<span class="dots"></span>
@@ -65,7 +72,7 @@
 			CACHE LAYER ONLINE
 		</p>
 	</div>
-</div>
+</main>
 
 <style>
 	@keyframes boot-in {

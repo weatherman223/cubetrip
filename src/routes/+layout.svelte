@@ -14,7 +14,7 @@
 <a
 	href="#main-content"
 	class="sr-only z-[9999] focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:rounded-lg focus:bg-airline-amber focus:px-4 focus:py-2 focus:font-mono focus:text-sm focus:font-bold focus:text-airline-midnight"
-	>Skip to results</a
+	>Skip to main content</a
 >
 
 <div

@@ -4,6 +4,18 @@ All notable changes to CubeTrip are recorded here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+### Fixed — UX & Accessibility sweep
+
+- **Escape in the airport dropdown no longer closes the whole settings modal.** The event is contained to the dropdown; a second Escape closes (and saves) the dialog.
+- **Settings modal dismissal is consistent: every path saves.** The ✕ button previously discarded staged edits silently while Escape/backdrop/SAVE committed them; ✕ now saves too. Backdrop click actually works (the dimming layer was swallowing clicks before the dead-zone check), focus returns to the ⚙ SETTINGS trigger on close, the ✕ button has an accessible name, and the driveable-radius slider is labeled.
+- **Typed airport codes commit on Enter** (exact IATA match, else top suggestion) instead of doing nothing without an arrow-key highlight; free text that was never committed reverts on blur so the input can't display an unsaved code.
+- **Searching a >90-day range from the landing hero shows an inline error** instead of failing silently, and the end-date picker caps at start + 90 days.
+- **Zero-results empty state names the filters that hid everything** ("All 84 competitions found for these dates are hidden by your filters (84 beyond your country filter)…") instead of always blaming the date range.
+- **Status badges and event chips meet WCAG AA contrast**: dark text on the light green/yellow/amber/gray/blue/red badge backgrounds (white 10px text sat at ~1.6–1.9:1 on green/yellow/amber); the slate "checking" badge keeps white text. Map popup badges match.
+- **Map legend and color-mode toggle render again** — they referenced undefined Tailwind tokens (`airline-dark`, `airline-dark-card`), leaving 9px white legend text floating directly on light map tiles. Map markers (competitions + homes) now expose accessible names instead of being unnamed focusable elements.
+- **Screen-reader flooding fixed**: the live flight-search ticker is `aria-live="off"` with a throttled sr-only fare-progress announcer (at most one line per 25% milestone), and the loading screen announces once instead of re-reading its cycling flavor text every 2 seconds.
+- **Skip link works everywhere** — it targeted `#main-content`, which only existed on the results screen; the hero and loading screens are now proper `<main id="main-content">` landmarks.
+
 ### Fixed
 
 - **Scrape failures are no longer cached as "no flights on this route."** Previously every failure in the scrape pipeline — Google 403 bot-block, timeout, consent-page/CAPTCHA interstitial, payload-format change — was swallowed into `{ flights: [] }`, cached under the sticky `flights:empty` key, and served as authoritative no-inventory (the route's 503/`failKey` path was unreachable). Now the parser throws a typed `FlightParseError` on extraction/structure failures (`[]` is reserved for a successfully parsed payload with zero itineraries), the provider rethrows instead of swallowing, and failures take the transient 5-minute `failKey`/503 path. A structural-anomaly guard also fails loud if the flight-list slots hold anything unrecognized — a format change now surfaces as an error instead of silently reporting zero flights everywhere. Routes with no airline service at all (seaplane bases, GA-only strips) return a valid payload with both list slots explicitly null — that shape (observed live on DEN→BED/DEN→CXH) is recognized as genuine "no flights" and stays sticky no-inventory.

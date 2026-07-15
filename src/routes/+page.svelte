@@ -335,6 +335,28 @@
 		locationFilteredCompetitions.filter((c) => c.wcif?.registrationStatus === 'closed').length
 	);
 
+	// Filter-aware empty-state copy: when the search DID find competitions but
+	// the user's own filters hid every one, say so — the default StatusMessage
+	// copy blames the date range, which sends users hunting in the wrong place.
+	const emptyMessage = $derived.by(() => {
+		if (competitions.length === 0 || filteredCompetitions.length > 0) return null;
+		const prefs = preferences.current;
+		const causes: string[] = [];
+		const hiddenByLocation = competitions.length - locationFilteredCompetitions.length;
+		if (hiddenByLocation > 0) {
+			const parts: string[] = [];
+			if (prefs.maxDistanceKm < MAX_DISTANCE_KM && prefs.homeLatitude !== null)
+				parts.push('distance limit');
+			if (prefs.allowedCountries.length > 0) parts.push('country filter');
+			causes.push(`${hiddenByLocation} beyond your ${parts.join(' and ') || 'travel filters'}`);
+		}
+		if (!showClosed && closedCount > 0) causes.push(`${closedCount} full/closed`);
+		if (selectedEvents.size > 0) causes.push('event filter active');
+		if (!allowPartial && flights.size > 0) causes.push('late arrivals hidden');
+		const n = competitions.length;
+		return `All ${n} competition${n === 1 ? '' : 's'} found for these dates ${n === 1 ? 'is' : 'are'} hidden by your filters${causes.length ? ` (${causes.join(' · ')})` : ''}. Adjust the filters above to see them.`;
+	});
+
 	// Summary label for the post-search travel-filters trigger button.
 	// "ALL DESTINATIONS" when nothing's filtered; otherwise concatenate active segments.
 	const locationFilterSummary = $derived.by(() => {
@@ -394,6 +416,16 @@
 			? 'Checking day-before flights (auto-widens if needed)'
 			: `Checking 1–${preferences.current.maxDaysBeforeComp} days before`
 	);
+	// Screen-reader fare-progress summary: the visual feed updates far too often
+	// to be a live region (it's aria-live="off"), so announce at most one line
+	// per 25% milestone instead — the string only changes when the quartile does.
+	const fareAnnouncement = $derived.by(() => {
+		if (!flightsLoading || nonDriveableCount === 0) return '';
+		const quartile = Math.min(4, Math.floor((flightsResolved / nonDriveableCount) * 4));
+		return quartile === 0
+			? 'Searching flight fares'
+			: `Flight fares about ${quartile * 25}% loaded`;
+	});
 
 	async function searchCompetitions(start: string, end: string) {
 		// Client-side date range validation (server also enforces 90 days)
@@ -528,7 +560,11 @@
 </script>
 
 {#if !hasSearched}
-	<SearchHero onSearch={searchCompetitions} onOpenSettings={() => (showPreferences = true)} />
+	<SearchHero
+		{error}
+		onSearch={searchCompetitions}
+		onOpenSettings={() => (showPreferences = true)}
+	/>
 {:else if loading && competitions.length === 0}
 	<LoadingScreen />
 {:else}
@@ -661,6 +697,7 @@
 					subtitle={flightModeSubtitle}
 				/>
 				<FlightSearchFeed events={routeEvents} />
+				<p class="sr-only" role="status">{fareAnnouncement}</p>
 			{/if}
 
 			<!-- Sort + view toggle row -->
@@ -721,6 +758,7 @@
 				competitions={filteredCompetitions}
 				{loading}
 				{error}
+				{emptyMessage}
 				onRetry={handleRetry}
 				{distances}
 				{flights}

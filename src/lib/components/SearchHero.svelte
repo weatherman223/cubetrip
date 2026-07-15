@@ -9,14 +9,24 @@
 
 	let {
 		onSearch,
-		onOpenSettings
+		onOpenSettings,
+		error = null
 	}: {
 		onSearch: (start: string, end: string) => void;
 		onOpenSettings: () => void;
+		error?: string | null;
 	} = $props();
 
 	let start = $state('');
 	let end = $state('');
+
+	// Server-enforced cap is 90 days; constrain the picker so the range can't
+	// silently fail validation after submit.
+	const maxEnd = $derived.by(() => {
+		if (!start) return undefined;
+		const [y, m, d] = start.split('-').map(Number);
+		return new Date(Date.UTC(y, m - 1, d + 90)).toISOString().split('T')[0];
+	});
 
 	let homeAirport = $state(preferences.current.homeAirport);
 	let homeLat = $state(preferences.current.homeLatitude);
@@ -98,7 +108,11 @@
 	});
 </script>
 
-<div
+<!-- <main id="main-content"> keeps the layout skip-link functional on the hero;
+	only one of the hero / loading / results branches renders at a time, so the
+	id stays unique. -->
+<main
+	id="main-content"
 	class="hero-container relative flex min-h-[calc(100vh-80px)] flex-col items-center justify-center px-4 py-16"
 >
 	<!-- Background atmosphere -->
@@ -284,6 +298,7 @@
 						type="date"
 						bind:value={end}
 						min={start}
+						max={maxEnd}
 						class="w-full rounded-lg border border-airline-slate bg-airline-midnight px-3 py-2.5 font-mono text-sm text-white transition-colors focus:border-airline-amber focus:outline-none"
 					/>
 				</div>
@@ -318,6 +333,19 @@
 				{/if}
 			</div>
 
+			{#if error}
+				<div
+					class="mb-3 flex items-start gap-2 rounded-lg border border-airline-cancelled/40 bg-airline-cancelled/10 px-3 py-2"
+					role="alert"
+				>
+					<span class="font-mono text-xs text-airline-cancelled" aria-hidden="true">⚠</span>
+					<p class="font-mono text-[10px] leading-snug text-airline-slate-light">
+						<span class="text-airline-cancelled">Can't search —</span>
+						{error}
+					</p>
+				</div>
+			{/if}
+
 			{#if slowReasons.length > 0}
 				<div
 					class="mb-3 flex items-start gap-2 rounded-lg border border-airline-amber/30 bg-airline-amber/5 px-3 py-2"
@@ -348,7 +376,7 @@
 			Discover WCA competitions you can travel to
 		</p>
 	</div>
-</div>
+</main>
 
 <style>
 	@keyframes hero-fade-in {

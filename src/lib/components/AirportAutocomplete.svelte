@@ -77,9 +77,20 @@
 				e.preventDefault();
 				if (focusedIndex >= 0) {
 					selectAirport(filteredResults[focusedIndex]);
+				} else {
+					// No option highlighted: commit the exact IATA match if the user
+					// typed one (e.g. "JFK"), otherwise the top suggestion — Enter
+					// should never silently discard visible results.
+					const typed = query.trim().toUpperCase();
+					const exact = filteredResults.find((a) => a.iata === typed);
+					selectAirport(exact ?? filteredResults[0]);
 				}
 				break;
 			case 'Escape':
+				// Contain Escape to the dropdown — without this it bubbles to the
+				// PreferencesModal wrapper and closes the whole dialog in one press.
+				e.preventDefault();
+				e.stopPropagation();
 				isOpen = false;
 				focusedIndex = -1;
 				break;
@@ -87,8 +98,12 @@
 	}
 
 	function handleBlur() {
+		// Delay lets an option's onmousedown selection land first. Afterwards,
+		// revert any uncommitted free text to the confirmed value so the input
+		// never displays a code that was never actually saved.
 		setTimeout(() => {
 			isOpen = false;
+			query = value ?? '';
 		}, 200);
 	}
 </script>

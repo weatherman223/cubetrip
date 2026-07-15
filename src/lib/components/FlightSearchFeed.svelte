@@ -10,9 +10,12 @@
 </script>
 
 {#if events.length > 0}
+	<!-- aria-live is off: this ticker updates on every route probe (hundreds per
+		search) and would drown a screen reader. Progress is announced instead by
+		the throttled sr-only status line next to the FLIGHT FARES bar. -->
 	<div
 		class="rounded-md border border-airline-slate/20 bg-airline-midnight/40 px-2 py-1.5"
-		aria-live="polite"
+		aria-live="off"
 		aria-label="Flight search activity"
 	>
 		<div class="space-y-0.5">

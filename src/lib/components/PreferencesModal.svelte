@@ -153,11 +153,21 @@
 	}
 
 	let panelEl = $state<HTMLDivElement | undefined>(undefined);
+	// Element that had focus before the dialog opened — restored on close so
+	// keyboard/screen-reader users don't get dumped back to <body>.
+	let lastTrigger: HTMLElement | null = null;
 
 	$effect(() => {
 		if (open && panelEl) {
+			// Capture the trigger BEFORE moving focus into the dialog
+			if (document.activeElement instanceof HTMLElement) {
+				lastTrigger = document.activeElement;
+			}
 			// Focus the panel on open so keyboard users start inside the dialog
 			panelEl.focus();
+		} else if (!open && lastTrigger) {
+			lastTrigger.focus();
+			lastTrigger = null;
 		}
 	});
 </script>
@@ -169,8 +179,9 @@
 		onmousedown={handleBackdrop}
 		onkeydown={handleKeydown}
 	>
-		<!-- Backdrop -->
-		<div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+		<!-- Backdrop. pointer-events-none so clicks on the dimmed area hit the
+			wrapper, whose handleBackdrop target check closes (and saves) the modal. -->
+		<div class="pointer-events-none absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
 
 		<!-- Panel -->
 		<div
@@ -195,10 +206,12 @@
 					<p class="mt-0.5 text-xs text-slate-500">Configure your home base</p>
 				</div>
 				<button
-					onclick={onClose}
+					type="button"
+					onclick={handleSave}
+					aria-label="Close settings"
 					class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-airline-slate/30 hover:text-white"
 				>
-					✕
+					<span aria-hidden="true">✕</span>
 				</button>
 			</div>
 
@@ -316,6 +329,7 @@
 							max="2000"
 							step="50"
 							class="radius-slider flex-1"
+							aria-label="Driveable radius"
 						/>
 					</div>
 				</div>
@@ -393,7 +407,7 @@
 								onclick={() => toggleDefaultEvent(eventId)}
 								class="flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] transition-all
 									{isSelected
-									? 'border-airline-amber bg-airline-amber text-white'
+									? 'border-airline-amber bg-airline-amber text-airline-midnight'
 									: 'border-airline-slate/40 text-airline-slate-light hover:border-airline-slate-light hover:text-white'}"
 							>
 								<span class="cubing-icon event-{eventId} text-xs"></span>

@@ -55,6 +55,24 @@ describe('getStatusTailwind', () => {
 		expect(result.dot).toBe('bg-airline-amber');
 	});
 
+	it('pairs every mapped (light) status background with dark text for WCAG contrast', () => {
+		for (const status of [
+			'open',
+			'on-the-spot',
+			'waitlist',
+			'not-open-yet',
+			'closed',
+			'cancelled'
+		]) {
+			expect(getStatusTailwind(status).text).toBe('text-airline-midnight');
+		}
+	});
+
+	it('keeps white text on the dark slate default background', () => {
+		expect(getStatusTailwind(undefined).text).toBe('text-white');
+		expect(getStatusTailwind('garbage').text).toBe('text-white');
+	});
+
 	it('isCancelled=true with undefined status still returns cancelled', () => {
 		const result = getStatusTailwind(undefined, true);
 		expect(result.label).toBe('CANCELLED');

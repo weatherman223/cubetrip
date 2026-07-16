@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Airport } from '$lib/types';
+	import { searchAirports } from '$lib/utils/airport-lookup';
 
 	let {
 		value,
@@ -14,38 +15,14 @@
 	let query = $derived(value ?? '');
 	let isOpen = $state(false);
 	let focusedIndex = $state(-1);
-	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-	let inputEl: HTMLInputElement | undefined;
 
-	let filteredResults: Airport[] = $state([]);
-	let searchError = $state(false);
-
-	async function runFilter(q: string) {
-		if (q.trim().length < 2) {
-			filteredResults = [];
-			searchError = false;
-			return;
-		}
-		try {
-			const res = await fetch(`/api/airports?q=${encodeURIComponent(q)}`);
-			if (res.ok) {
-				const data = await res.json();
-				filteredResults = data.airports;
-				searchError = false;
-			} else {
-				searchError = true;
-			}
-		} catch {
-			searchError = true;
-		}
-	}
+	// The full airport dataset ships in the client bundle (airport-lookup.ts),
+	// so autocomplete filters locally — no fetch, no debounce, no error state.
+	const filteredResults = $derived(searchAirports(query));
 
 	function handleInput() {
 		isOpen = true;
 		focusedIndex = -1;
-		searchError = false;
-		clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => runFilter(query), 150);
 	}
 
 	function selectAirport(airport: Airport) {
@@ -59,7 +36,6 @@
 		if (!isOpen || filteredResults.length === 0) {
 			if (e.key === 'ArrowDown' && query.length >= 2) {
 				isOpen = true;
-				runFilter(query);
 			}
 			return;
 		}
@@ -110,14 +86,12 @@
 
 <div class="relative">
 	<input
-		bind:this={inputEl}
 		bind:value={query}
 		oninput={handleInput}
 		onkeydown={handleKeydown}
 		onfocus={() => {
 			if (query.length >= 2) {
 				isOpen = true;
-				runFilter(query);
 			}
 		}}
 		onblur={handleBlur}
@@ -161,11 +135,5 @@
 				</li>
 			{/each}
 		</ul>
-	{:else if isOpen && searchError && filteredResults.length === 0}
-		<div
-			class="absolute top-full z-50 mt-1 w-full rounded-lg border border-airline-cancelled/30 bg-airline-navy px-3 py-2 text-center font-mono text-[10px] text-airline-cancelled/80 shadow-xl"
-		>
-			Search failed — try again
-		</div>
 	{/if}
 </div>

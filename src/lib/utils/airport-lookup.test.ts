@@ -1,5 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { findNearestAirports, findNearbyAirports } from './airport-lookup';
+import { findNearestAirports, findNearbyAirports, searchAirports } from './airport-lookup';
+
+describe('searchAirports', () => {
+	it('exact IATA match ranks first, case-insensitive', () => {
+		expect(searchAirports('den')[0].iata).toBe('DEN');
+		expect(searchAirports('DEN')[0].iata).toBe('DEN');
+	});
+
+	it('returns [] for queries under 2 characters', () => {
+		expect(searchAirports('D')).toEqual([]);
+		expect(searchAirports('  ')).toEqual([]);
+	});
+
+	it('returns [] when nothing matches', () => {
+		expect(searchAirports('ZZZZZZ')).toEqual([]);
+	});
+
+	it('caps results at the limit for broad queries', () => {
+		const results = searchAirports('new');
+		expect(results.length).toBeGreaterThan(0);
+		expect(results.length).toBeLessThanOrEqual(10);
+	});
+
+	it('matches by city name', () => {
+		expect(searchAirports('Denver').some((a) => a.iata === 'DEN')).toBe(true);
+	});
+});
 
 describe('findNearestAirports', () => {
 	it('Denver coords (39.8600, -104.6738) nearest is DEN', () => {

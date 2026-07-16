@@ -1,7 +1,6 @@
-import type { WCACompetition, WCIFPublicData, EnrichedCompetition, EnrichedWCIF } from './types';
+import type { WCACompetition, WCIFPublicData } from './types';
 import { getCache, setCache, TTL } from '$lib/server/cache';
 import { withCoalesce } from '$lib/server/cache/coalesce';
-import { enrichWCIF } from '$lib/utils/enrich-wcif';
 import { delay } from '$lib/utils/delay';
 import { logger } from '$lib/server/logger';
 
@@ -140,53 +139,5 @@ export async function fetchWCIF(id: string, skipCache = false): Promise<WCIFPubl
 
 		setCache(cacheKey, result, TTL.WCIF);
 		return result;
-	});
-}
-
-/**
- * Fetch WCIF public data for multiple competitions with concurrency control.
- * Processes in batches to avoid hammering the WCA API.
- * Failed fetches are logged and skipped — the returned Map only contains successes.
- */
-export async function fetchWCIFBatch(
-	ids: string[],
-	options: { concurrency?: number; delayMs?: number } = {}
-): Promise<Map<string, WCIFPublicData>> {
-	const { concurrency = 3, delayMs = 200 } = options;
-	const results = new Map<string, WCIFPublicData>();
-
-	for (let i = 0; i < ids.length; i += concurrency) {
-		if (i > 0) await delay(delayMs);
-
-		const chunk = ids.slice(i, i + concurrency);
-		const settled = await Promise.allSettled(chunk.map((id) => fetchWCIF(id)));
-
-		for (let j = 0; j < settled.length; j++) {
-			const result = settled[j];
-			if (result.status === 'fulfilled') {
-				results.set(chunk[j], result.value);
-			} else {
-				logger.warn({ competitionId: chunk[j], err: result.reason }, 'WCIF fetch failed');
-			}
-		}
-	}
-
-	return results;
-}
-
-/**
- * Enrich competitions with WCIF data (registration status, schedule times, competitor limit).
- * Fetches WCIF in batches with concurrency control.
- */
-export async function enrichCompetitions(
-	competitions: WCACompetition[]
-): Promise<EnrichedCompetition[]> {
-	const ids = competitions.map((c) => c.id);
-	const wcifMap = await fetchWCIFBatch(ids);
-
-	return competitions.map((comp) => {
-		const wcifData = wcifMap.get(comp.id);
-		const wcif: EnrichedWCIF | null = wcifData ? enrichWCIF(comp.cancelled_at, wcifData) : null;
-		return { ...comp, wcif };
 	});
 }

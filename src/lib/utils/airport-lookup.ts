@@ -13,6 +13,25 @@ function cacheKey(lat: number, lng: number, count: number): string {
 }
 
 /**
+ * Rank airports for autocomplete: exact IATA match first, then IATA prefix,
+ * then city/name substring. Case-insensitive; queries under 2 chars return [].
+ */
+export function searchAirports(query: string, limit = 10): Airport[] {
+	const q = query.trim().toLowerCase();
+	if (q.length < 2) return [];
+	const exact: Airport[] = [];
+	const prefix: Airport[] = [];
+	const other: Airport[] = [];
+	for (const a of airportList) {
+		const iata = a.iata.toLowerCase();
+		if (iata === q) exact.push(a);
+		else if (iata.startsWith(q)) prefix.push(a);
+		else if (a.city.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)) other.push(a);
+	}
+	return [...exact, ...prefix, ...other].slice(0, limit);
+}
+
+/**
  * Find the N nearest airports to a given coordinate, sorted by distance.
  * Results are memoized by rounded (lat, lng) to avoid redundant scans.
  */

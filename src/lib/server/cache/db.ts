@@ -16,22 +16,6 @@ logger.debug({ path: DB_PATH }, 'cache db path');
 // Expect a brief cache-cold period after bumping as fresh data repopulates.
 const CACHE_SCHEMA_VERSION = 1;
 
-// --- DB schema migrations (tracked via PRAGMA user_version) ---
-// Each migration upgrades from user_version=index to user_version=index+1.
-type Migration = (database: InstanceType<typeof Database>) => void;
-
-const migrations: Migration[] = [
-	// 0 -> 1: Add version column (may already exist from CREATE TABLE on fresh DBs)
-	(database) => {
-		const columns = database.pragma('table_info(cache)') as Array<{ name: string }>;
-		if (!columns.some((col) => col.name === 'version')) {
-			database.exec('ALTER TABLE cache ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
-		}
-	}
-];
-
-const DB_SCHEMA_VERSION = migrations.length;
-
 let db: InstanceType<typeof Database>;
 
 export function initTable(database: InstanceType<typeof Database>) {
@@ -44,17 +28,12 @@ export function initTable(database: InstanceType<typeof Database>) {
 		)
 	`);
 
-	const currentVersion = (database.pragma('user_version', { simple: true }) as number) ?? 0;
-
-	if (currentVersion < DB_SCHEMA_VERSION) {
-		const migrate = database.transaction(() => {
-			for (let v = currentVersion; v < DB_SCHEMA_VERSION; v++) {
-				migrations[v](database);
-			}
-			database.pragma(`user_version = ${DB_SCHEMA_VERSION}`);
-		});
-		migrate();
-		logger.info({ from: currentVersion, to: DB_SCHEMA_VERSION }, 'cache db schema migrated');
+	// Legacy DBs predate the version column — add it if missing.
+	// ponytail: single idempotent column check; bring back a user_version
+	// migration loop when a second migration actually exists.
+	const columns = database.pragma('table_info(cache)') as Array<{ name: string }>;
+	if (!columns.some((col) => col.name === 'version')) {
+		database.exec('ALTER TABLE cache ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
 	}
 
 	database.exec('CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)');
@@ -80,7 +59,6 @@ const stmtGet = db.prepare('SELECT value, expires_at, version FROM cache WHERE k
 const stmtSet = db.prepare(
 	'INSERT OR REPLACE INTO cache (key, value, expires_at, version) VALUES (?, ?, ?, ?)'
 );
-const stmtDeleteByPrefix = db.prepare("DELETE FROM cache WHERE key LIKE ? || '%'");
 const stmtDeleteByKey = db.prepare('DELETE FROM cache WHERE key = ?');
 const stmtClean = db.prepare('DELETE FROM cache WHERE expires_at < ?');
 
@@ -102,10 +80,6 @@ export function getCache<T>(key: string): T | null {
 
 export function setCache<T>(key: string, value: T, ttlMs: number): void {
 	stmtSet.run(key, JSON.stringify(value), Date.now() + ttlMs, CACHE_SCHEMA_VERSION);
-}
-
-export function invalidateCache(keyPrefix: string): void {
-	stmtDeleteByPrefix.run(keyPrefix);
 }
 
 export function cleanExpired(): void {

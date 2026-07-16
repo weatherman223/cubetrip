@@ -25,10 +25,6 @@ export const CONTINENTS: readonly Continent[] = [
 
 export const COUNTRIES: readonly Country[] = countriesData as Country[];
 
-export const COUNTRIES_BY_ISO2: ReadonlyMap<string, Country> = new Map(
-	COUNTRIES.map((c) => [c.iso2, c])
-);
-
 export const COUNTRIES_BY_CONTINENT: ReadonlyMap<Continent, readonly Country[]> = (() => {
 	const map = new Map<Continent, Country[]>();
 	for (const cont of CONTINENTS) map.set(cont, []);

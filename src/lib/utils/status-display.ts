@@ -13,79 +13,85 @@ export interface StatusDisplayTailwind {
 	text: string; // Tailwind text class with WCAG-AA contrast against `color`
 }
 
-const hexMap: Record<string, StatusDisplayHex> = {
-	open: { label: 'BOARDING', color: '#22c55e', deep: '#15803d' },
-	'on-the-spot': { label: 'STANDBY', color: '#eab308', deep: '#a16207' },
-	waitlist: { label: 'WAITLIST', color: '#f59e0b', deep: '#b45309' },
-	'not-open-yet': { label: 'PREBOARDING', color: '#3b82f6', deep: '#2563eb' },
-	closed: { label: 'GATE CLOSED', color: '#94a3b8', deep: '#475569' },
-	cancelled: { label: 'CANCELLED', color: '#ef4444', deep: '#b91c1c' }
-};
+// One row per status: hex tokens for Leaflet markers/popups, Tailwind classes
+// for Svelte components. Badges pair white text with the darkened "-deep"
+// status backgrounds (all >=4.9:1, WCAG AA at 10px) — the bright base tokens
+// fail with white text (green/yellow/amber sit at ~1.9-2.3:1) and stay
+// reserved for status dots and map markers, which sit on light surfaces.
+interface StatusRow {
+	label: string;
+	color: string;
+	deep: string;
+	bg: string;
+	dot: string;
+}
 
-const defaultHex: StatusDisplayHex = {
-	label: 'CHECKING STATUS',
-	color: '#94a3b8',
-	deep: '#334155'
-};
-
-// Badges pair white text with the darkened "-deep" status backgrounds (all
-// >=4.9:1, WCAG AA at 10px) — the bright base tokens fail with white text
-// (green/yellow/amber sit at ~1.9-2.3:1) and stay reserved for status dots
-// and map markers, which sit on light surfaces.
-const tailwindMap: Record<string, StatusDisplayTailwind> = {
+const statusMap: Record<string, StatusRow> = {
 	open: {
 		label: 'BOARDING',
-		color: 'bg-airline-open-deep',
-		dot: 'bg-airline-open',
-		text: 'text-white'
+		color: '#22c55e',
+		deep: '#15803d',
+		bg: 'bg-airline-open-deep',
+		dot: 'bg-airline-open'
 	},
 	'on-the-spot': {
 		label: 'STANDBY',
-		color: 'bg-airline-standby-deep',
-		dot: 'bg-airline-standby',
-		text: 'text-white'
+		color: '#eab308',
+		deep: '#a16207',
+		bg: 'bg-airline-standby-deep',
+		dot: 'bg-airline-standby'
 	},
 	waitlist: {
 		label: 'WAITLIST',
-		color: 'bg-airline-waitlist-deep',
-		dot: 'bg-airline-amber',
-		text: 'text-white'
+		color: '#f59e0b',
+		deep: '#b45309',
+		bg: 'bg-airline-waitlist-deep',
+		dot: 'bg-airline-amber'
 	},
 	'not-open-yet': {
 		label: 'PREBOARDING',
-		color: 'bg-airline-upcoming-deep',
-		dot: 'bg-airline-upcoming',
-		text: 'text-white'
+		color: '#3b82f6',
+		deep: '#2563eb',
+		bg: 'bg-airline-upcoming-deep',
+		dot: 'bg-airline-upcoming'
 	},
 	closed: {
 		label: 'GATE CLOSED',
-		color: 'bg-airline-closed-deep',
-		dot: 'bg-airline-closed',
-		text: 'text-white'
+		color: '#94a3b8',
+		deep: '#475569',
+		bg: 'bg-airline-closed-deep',
+		dot: 'bg-airline-closed'
 	},
 	cancelled: {
 		label: 'CANCELLED',
-		color: 'bg-airline-cancelled-deep',
-		dot: 'bg-airline-cancelled',
-		text: 'text-white'
+		color: '#ef4444',
+		deep: '#b91c1c',
+		bg: 'bg-airline-cancelled-deep',
+		dot: 'bg-airline-cancelled'
 	}
 };
 
-const defaultTailwind: StatusDisplayTailwind = {
+const defaultRow: StatusRow = {
 	label: 'CHECKING STATUS',
-	color: 'bg-airline-slate',
-	dot: 'bg-airline-amber',
-	text: 'text-white'
+	color: '#94a3b8',
+	deep: '#334155',
+	bg: 'bg-airline-slate',
+	dot: 'bg-airline-amber'
 };
+
+function rowFor(status: RegistrationStatus | string | undefined, isCancelled: boolean): StatusRow {
+	if (isCancelled) return statusMap.cancelled;
+	if (!status) return defaultRow;
+	return statusMap[status] ?? defaultRow;
+}
 
 /** Get hex color + label for a registration status (used in Leaflet popups/markers). */
 export function getStatusHex(
 	status: RegistrationStatus | string | undefined,
 	isCancelled = false
 ): StatusDisplayHex {
-	if (isCancelled) return hexMap.cancelled;
-	if (!status) return defaultHex;
-	return hexMap[status] ?? defaultHex;
+	const { label, color, deep } = rowFor(status, isCancelled);
+	return { label, color, deep };
 }
 
 /** Get Tailwind classes + label for a registration status (used in Svelte components). */
@@ -93,7 +99,6 @@ export function getStatusTailwind(
 	status: RegistrationStatus | string | undefined,
 	isCancelled = false
 ): StatusDisplayTailwind {
-	if (isCancelled) return tailwindMap.cancelled;
-	if (!status) return defaultTailwind;
-	return tailwindMap[status] ?? defaultTailwind;
+	const { label, bg, dot } = rowFor(status, isCancelled);
+	return { label, color: bg, dot, text: 'text-white' };
 }

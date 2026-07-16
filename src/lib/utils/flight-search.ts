@@ -89,40 +89,16 @@ export type FetchFlightResult =
  * one `start` immediately before each network call, followed by exactly one
  * terminal event (`hit` | `empty` | `error`) once it resolves.
  */
-export type RouteEvent =
-	| {
-			kind: 'start';
-			compId: string;
-			compName: string;
-			origin: string;
-			destination: string;
-			daysBefore: number;
-	  }
-	| {
-			kind: 'hit';
-			compId: string;
-			compName: string;
-			origin: string;
-			destination: string;
-			daysBefore: number;
-			price: number;
-	  }
-	| {
-			kind: 'empty';
-			compId: string;
-			compName: string;
-			origin: string;
-			destination: string;
-			daysBefore: number;
-	  }
-	| {
-			kind: 'error';
-			compId: string;
-			compName: string;
-			origin: string;
-			destination: string;
-			daysBefore: number;
-	  };
+export interface RouteEvent {
+	kind: 'start' | 'hit' | 'empty' | 'error';
+	compId: string;
+	compName: string;
+	origin: string;
+	destination: string;
+	daysBefore: number;
+	/** Cheapest price found — only present on 'hit'. */
+	price?: number;
+}
 
 export type OnRouteEvent = (e: RouteEvent) => void;
 
@@ -141,16 +117,9 @@ export async function fetchFlightForAirport(
 	onRouteEvent?: OnRouteEvent,
 	ctx?: RouteContext
 ): Promise<FetchFlightResult> {
-	// Distributive omit so the emitted variant carries its own discriminated fields
-	// (e.g. `price` for 'hit') — `Omit<Union, K>` collapses the union otherwise.
-	type EventBody = RouteEvent extends infer E
-		? E extends RouteEvent
-			? Omit<E, 'compId' | 'compName'>
-			: never
-		: never;
-	const emit = (e: EventBody) => {
+	const emit = (e: Omit<RouteEvent, 'compId' | 'compName'>) => {
 		if (!onRouteEvent || !ctx) return;
-		onRouteEvent({ ...e, compId: ctx.compId, compName: ctx.compName } as RouteEvent);
+		onRouteEvent({ ...e, compId: ctx.compId, compName: ctx.compName });
 	};
 	emit({ kind: 'start', origin: homeAirport, destination: destIata, daysBefore });
 	try {

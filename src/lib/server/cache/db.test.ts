@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // We rely on that initialization and use unique keys per test to avoid interference.
 
 import Database from 'better-sqlite3';
-import { getCache, setCache, invalidateCache, cleanExpired, initTable } from './db';
+import { getCache, setCache, cleanExpired, initTable } from './db';
 
 const BASE_TIME = 1_700_000_000_000; // fixed base for predictable Date.now()
 
@@ -70,30 +70,6 @@ describe('cache db', () => {
 		expect(result).toEqual(complex);
 	});
 
-	it('invalidateCache removes all keys with matching prefix', () => {
-		const prefix = 'db-test:inv-prefix:' + Date.now();
-		setCache(`${prefix}:flights:A:B`, 'flight1', 60_000);
-		setCache(`${prefix}:flights:A:C`, 'flight2', 60_000);
-		setCache(`${prefix}:comps:X`, 'comp1', 60_000);
-
-		invalidateCache(`${prefix}:flights`);
-
-		expect(getCache(`${prefix}:flights:A:B`)).toBeNull();
-		expect(getCache(`${prefix}:flights:A:C`)).toBeNull();
-		expect(getCache<string>(`${prefix}:comps:X`)).toBe('comp1');
-	});
-
-	it('invalidateCache does not remove non-matching keys', () => {
-		const prefix = 'db-test:inv-nomatch:' + Date.now();
-		setCache(`${prefix}:alpha`, 'a', 60_000);
-		setCache(`${prefix}:beta`, 'b', 60_000);
-
-		invalidateCache(`${prefix}:gamma`);
-
-		expect(getCache<string>(`${prefix}:alpha`)).toBe('a');
-		expect(getCache<string>(`${prefix}:beta`)).toBe('b');
-	});
-
 	it('cleanExpired removes expired entries but keeps valid ones', () => {
 		const prefix = 'db-test:clean:' + Date.now();
 		// Short-lived entry: 2s TTL
@@ -149,13 +125,10 @@ describe('cache db', () => {
 	});
 });
 
-describe('initTable migrations', () => {
-	it('fresh DB: creates table, runs migrations, sets user_version', () => {
+describe('initTable', () => {
+	it('fresh DB: creates table with version column', () => {
 		const testDb = new Database(':memory:');
 		initTable(testDb);
-
-		const version = testDb.pragma('user_version', { simple: true });
-		expect(version).toBe(1);
 
 		const cols = testDb.pragma('table_info(cache)') as Array<{ name: string }>;
 		expect(cols.some((c) => c.name === 'version')).toBe(true);
@@ -163,23 +136,8 @@ describe('initTable migrations', () => {
 		testDb.close();
 	});
 
-	it('DB already at current version: no migrations run', () => {
+	it('legacy table without version column: column gets added', () => {
 		const testDb = new Database(':memory:');
-		initTable(testDb);
-
-		// Call again — should be a no-op
-		initTable(testDb);
-
-		const version = testDb.pragma('user_version', { simple: true });
-		expect(version).toBe(1);
-
-		testDb.close();
-	});
-
-	it('DB with table but missing version column: migration adds it', () => {
-		const testDb = new Database(':memory:');
-		// Manually create table WITHOUT version column
-		testDb.pragma('user_version = 0');
 		testDb
 			.prepare(
 				`
@@ -194,23 +152,17 @@ describe('initTable migrations', () => {
 
 		initTable(testDb);
 
-		const version = testDb.pragma('user_version', { simple: true });
-		expect(version).toBe(1);
-
 		const cols = testDb.pragma('table_info(cache)') as Array<{ name: string }>;
 		expect(cols.some((c) => c.name === 'version')).toBe(true);
 
 		testDb.close();
 	});
 
-	it('calling initTable twice is idempotent', () => {
+	it('calling initTable repeatedly is idempotent', () => {
 		const testDb = new Database(':memory:');
 		initTable(testDb);
 		initTable(testDb);
 		initTable(testDb);
-
-		const version = testDb.pragma('user_version', { simple: true });
-		expect(version).toBe(1);
 
 		// Table should still work
 		testDb

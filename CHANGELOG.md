@@ -2,6 +2,31 @@
 
 All notable changes to CubeTrip are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [SemVer](https://semver.org/).
 
+## [0.3.1] — 2026-07-15
+
+A housekeeping release from a whole-repo over-engineering audit: nine findings adversarially verified, eight applied, one rejected. Net −416 lines and one fewer API route, with no intended behavior change.
+
+### Removed
+
+- **Dead server-side WCIF batch-enrichment path** (`enrichCompetitions`, `fetchWCIFBatch` and their tests) — leftover architecture from before per-card lazy loading. The competitions route returns `wcif: null` and the client fetches `/api/wcif/:id` per card, so nothing called it.
+- **`/api/airports` endpoint.** The full ~500-entry `airports.json` already ships in the client bundle for nearest-airport lookups, so the autocomplete was making a debounced network round-trip to filter data it already had locally. It now filters in the browser via a new `searchAirports()` in `airport-lookup.ts` (same exact-IATA → IATA-prefix → city/name ranking); the fetch, 150ms debounce timer, and network-error dropdown state went with it. Suggestions are now instant.
+- `invalidateCache` (cache db) and `COUNTRIES_BY_ISO2` — no callers outside their own tests.
+
+### Changed
+
+- **`RouteEvent` flattened** from a four-variant discriminated union to a single interface with an optional `price` (present only on `hit`), removing the distributive-`Omit` type gymnastics the union forced on the emit path. No runtime change.
+- **Status display maps merged.** `hexMap` and `tailwindMap` duplicated all six status labels; one table now holds both the hex tokens and the Tailwind classes per status, and `getStatusHex` / `getStatusTailwind` project the exact same shapes as before.
+- **Cache-db migration framework inlined.** The migrations array + `user_version` transaction loop hosted exactly one migration, which was itself an idempotent "add version column if missing" check; the check now runs inline in `initTable`. Marked in-code to reintroduce the loop when a second migration actually exists.
+- `wca/index.ts` barrel shrunk to its three real exports (`fetchCompetitions`, `fetchWCIF`, `WCAApiError`) — all consumers already import types from `wca/types` directly.
+
+### Considered and rejected
+
+- Replacing the `COUNTRIES_BY_CONTINENT` builder with `Map.groupBy`: Vite 7's default browser target includes Safari 16, which lacks `Map.groupBy` (17.4+), and esbuild doesn't polyfill APIs — the swap would throw at module load. The hand-rolled loop stays.
+
+### Tests
+
+- 349 tests across 23 files (was 357/24): tests for deleted code went with it, `searchAirports` ranking coverage was ported from the deleted route tests, and the cache-db tests now assert behavior (version column exists, `initTable` is idempotent) rather than the `user_version` mechanism. Autocomplete verified live in-browser against a mock-flights dev server.
+
 ## [0.3.0] — 2026-07-15
 
 A correctness-and-polish release driven by a full-codebase audit: the flight pipeline now fails loud instead of caching failures as "no flights," all date/time math is timezone-correct, and a 15-finding UX/accessibility sweep landed.

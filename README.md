@@ -2,7 +2,7 @@
 
 A web app for speedcubers to find WCA competitions they can spontaneously travel to. Pick a date range, see open competitions worldwide, and compare flight costs or driving distances.
 
-> **Beta 0.3.0** — there is no hosted instance right now. To try it, clone and run locally with the quick-start below. See [CHANGELOG.md](CHANGELOG.md) for what's new and [Beta / Known Limitations](#beta--known-limitations) before reporting bugs.
+> **Beta 0.3.1** — there is no hosted instance right now. To try it, clone and run locally with the quick-start below. See [CHANGELOG.md](CHANGELOG.md) for what's new and [Beta / Known Limitations](#beta--known-limitations) before reporting bugs.
 
 ## Quick Start (Beta Testers)
 
@@ -112,7 +112,6 @@ Set `USE_MOCK_FLIGHTS=true` in `.env` to avoid hitting Google Flights during dev
 | `/api/competitions?start=&end=`                             | GET    | Search WCA competitions in a date range (max 90 days) |
 | `/api/wcif/:id`                                             | GET    | Fetch enriched WCIF data for a competition            |
 | `/api/flights?origin=&destination=&departDate=&returnDate=` | GET    | Search flight prices                                  |
-| `/api/airports?q=`                                          | GET    | Airport autocomplete search                           |
 | `/api/health`                                               | GET    | Health check (DB connectivity + uptime)               |
 
 ## Deployment

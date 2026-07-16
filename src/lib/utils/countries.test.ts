@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import {
-	COUNTRIES,
-	COUNTRIES_BY_ISO2,
-	COUNTRIES_BY_CONTINENT,
-	CONTINENTS,
-	type Continent
-} from './countries';
+import { COUNTRIES, COUNTRIES_BY_CONTINENT, CONTINENTS, type Continent } from './countries';
+
+const byIso2 = new Map(COUNTRIES.map((c) => [c.iso2, c]));
 
 describe('countries dataset', () => {
 	it('has a non-empty country list', () => {
@@ -13,17 +9,17 @@ describe('countries dataset', () => {
 	});
 
 	it('has known countries with expected continents', () => {
-		expect(COUNTRIES_BY_ISO2.get('US')).toMatchObject({
+		expect(byIso2.get('US')).toMatchObject({
 			iso2: 'US',
 			name: 'United States',
 			continent: 'North America'
 		});
-		expect(COUNTRIES_BY_ISO2.get('GB')).toMatchObject({ continent: 'Europe' });
-		expect(COUNTRIES_BY_ISO2.get('JP')).toMatchObject({ continent: 'Asia' });
-		expect(COUNTRIES_BY_ISO2.get('DE')).toMatchObject({ continent: 'Europe' });
-		expect(COUNTRIES_BY_ISO2.get('AU')).toMatchObject({ continent: 'Oceania' });
-		expect(COUNTRIES_BY_ISO2.get('BR')).toMatchObject({ continent: 'South America' });
-		expect(COUNTRIES_BY_ISO2.get('ZA')).toMatchObject({ continent: 'Africa' });
+		expect(byIso2.get('GB')).toMatchObject({ continent: 'Europe' });
+		expect(byIso2.get('JP')).toMatchObject({ continent: 'Asia' });
+		expect(byIso2.get('DE')).toMatchObject({ continent: 'Europe' });
+		expect(byIso2.get('AU')).toMatchObject({ continent: 'Oceania' });
+		expect(byIso2.get('BR')).toMatchObject({ continent: 'South America' });
+		expect(byIso2.get('ZA')).toMatchObject({ continent: 'Africa' });
 	});
 
 	it('contains no duplicate ISO2 codes', () => {
@@ -42,8 +38,8 @@ describe('countries dataset', () => {
 	});
 
 	it('does not include WCA placeholder grouping entries (XM, XW)', () => {
-		expect(COUNTRIES_BY_ISO2.has('XM')).toBe(false);
-		expect(COUNTRIES_BY_ISO2.has('XW')).toBe(false);
+		expect(byIso2.has('XM')).toBe(false);
+		expect(byIso2.has('XW')).toBe(false);
 	});
 
 	it('every continent has at least one country', () => {

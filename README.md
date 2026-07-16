@@ -2,7 +2,7 @@
 
 A web app for speedcubers to find WCA competitions they can spontaneously travel to. Pick a date range, see open competitions worldwide, and compare flight costs or driving distances.
 
-> **Beta 0.2.0** — there is no hosted instance right now. To try it, clone and run locally with the quick-start below. See [CHANGELOG.md](CHANGELOG.md) for what's new and [Beta / Known Limitations](#beta--known-limitations) before reporting bugs.
+> **Beta 0.3.0** — there is no hosted instance right now. To try it, clone and run locally with the quick-start below. See [CHANGELOG.md](CHANGELOG.md) for what's new and [Beta / Known Limitations](#beta--known-limitations) before reporting bugs.
 
 ## Quick Start (Beta Testers)
 
